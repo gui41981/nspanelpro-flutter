@@ -189,7 +189,7 @@ or exactly:
 {
   "name": "NSPanel86PW",
   "dashboard": "dashboard-nspanel86",
-  "url": "https://loyot.synology.me:8123",
+  "url": "https://homeassistant.local:8123",
   "token": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 }
 ```
