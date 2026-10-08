@@ -185,6 +185,13 @@ settings from a file you push over adb. Write `setup.json` on your computer:
 
 ```json
 { "url": "http://10.0.0.2:8123", "token": "eyJ...", "dashboard": "" }
+or exactly:
+{
+  "name": "NSPanel86PW",
+  "dashboard": "dashboard-nspanel86",
+  "url": "https://loyot.synology.me:8123",
+  "token": "XXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+}
 ```
 
 then push it into the app's own directory (no storage permission needed) and launch:
