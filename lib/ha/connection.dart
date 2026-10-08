@@ -62,19 +62,27 @@ class HaConnection {
 
   Future<void> _connect() async {
     if (_closed) return;
+
     status.value = HaStatus.connecting;
+
     try {
+      debugPrint('ha: connecting');
       _t = await transportFactory();
-    } catch (_) {
+      debugPrint('ha: websocket connected');
+    } catch (e, st) {
+      debugPrint('ha: websocket connect failed: $e');
+      debugPrint('$st');
       _retry();
       return;
     }
+
     _listen = _t!.messages.listen(
       _onMessage,
       onDone: () {
         if (!_closed) _retry();
       },
-      onError: (_) {
+      onError: (error) {
+        debugPrint('ha: websocket error: $error');
         if (!_closed) _retry();
       },
     );
@@ -93,34 +101,45 @@ class HaConnection {
     status.value = HaStatus.offline;
     _failPending();
     _retryTimer?.cancel();
+
     // Back off, but never so far that a panel left overnight takes minutes to
     // notice HA came back.
     _retryTimer = Timer(_backoff, _connect);
-    _backoff = Duration(milliseconds: min(_backoff.inMilliseconds * 2, 15000));
+    _backoff = Duration(
+      milliseconds: min(_backoff.inMilliseconds * 2, 15000),
+    );
   }
 
   void _onMessage(String raw) {
+    debugPrint('ha: message: $raw');
+
     final dynamic msg;
     try {
       msg = jsonDecode(raw);
     } catch (_) {
       return;
     }
+
     if (msg is! Map) return;
+
     switch (msg['type']) {
       case 'auth_required':
         _t!.send(jsonEncode({'type': 'auth', 'access_token': token}));
+
       case 'auth_invalid':
         _closed = true;
         status.value = HaStatus.authFailed;
+
       case 'auth_ok':
         _authed = true;
         _backoff = const Duration(seconds: 1);
         status.value = HaStatus.online;
         _seed();
+
       case 'result':
         final c = _pending.remove(msg['id']);
         if (c == null) return;
+
         if (msg['success'] == true) {
           c.complete(msg['result']);
         } else {
@@ -129,6 +148,7 @@ class HaConnection {
             StateError(err is Map ? '${err['message']}' : 'call failed'),
           );
         }
+
       case 'event':
         _subs[msg['id']]?.call(msg['event']);
     }
@@ -138,6 +158,7 @@ class HaConnection {
     if (!_authed || _t == null) {
       return Future.error(StateError('not connected'));
     }
+
     final id = _id++;
     final c = Completer<dynamic>();
     _pending[id] = c;
@@ -154,17 +175,23 @@ class HaConnection {
     if (!_authed || _t == null) {
       return Future.error(StateError('not connected'));
     }
+
     final id = _id++;
     _subs[id] = onEvent;
     final c = Completer<dynamic>();
     _pending[id] = c;
+
     _t!.send(jsonEncode({'id': id, ...payload}));
+
     return c.future
         .then(
           (_) => () async {
             _subs.remove(id);
             try {
-              await send({'type': 'unsubscribe_events', 'subscription': id});
+              await send({
+                'type': 'unsubscribe_events',
+                'subscription': id,
+              });
             } catch (_) {
               // already gone; nothing to release
             }
@@ -182,24 +209,36 @@ class HaConnection {
   Future<void> _seed() async {
     try {
       final list = await send({'type': 'get_states'}) as List;
+
       states.replaceAll({
         for (final s in list.cast<Map>())
-          s['entity_id'] as String: HaState.fromJson(s.cast<String, dynamic>()),
+          s['entity_id'] as String:
+              HaState.fromJson(s.cast<String, dynamic>()),
       });
+
       await subscribe(
-        {'type': 'subscribe_events', 'event_type': 'state_changed'},
+        {
+          'type': 'subscribe_events',
+          'event_type': 'state_changed',
+        },
         (ev) {
           final d = (ev as Map?)?['data'];
           if (d is! Map) return;
+
           final id = d['entity_id'];
           if (id is! String) return;
+
           final ns = d['new_state'];
+
           states.update(
             id,
-            ns is Map ? HaState.fromJson(ns.cast<String, dynamic>()) : null,
+            ns is Map
+                ? HaState.fromJson(ns.cast<String, dynamic>())
+                : null,
           );
         },
       );
+
       generation++;
       onReady?.call();
     } catch (e) {
@@ -235,6 +274,7 @@ class HaConnection {
       'url_path': (urlPath == null || urlPath.isEmpty) ? null : urlPath,
       'force': false,
     });
+
     return (r as Map).cast<String, dynamic>();
   }
 }
