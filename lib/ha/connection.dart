@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 
 import 'states.dart';
+import 'panels.dart';
 import 'transport.dart';
 
 enum HaStatus { connecting, online, offline, authFailed }
@@ -30,48 +31,69 @@ class HaConnection {
 
   final ValueNotifier<HaStatus> status = ValueNotifier(HaStatus.connecting);
 
-  /// Called after every successful auth + state seed, so the app can (re)load
-  /// the dashboard config on each reconnect.
+  /// Called after every successful auth + state seed, so the app can
+  /// (re)load the dashboard config on each reconnect.
   void Function()? onReady;
 
   HaTransport? _t;
   StreamSubscription<String>? _listen;
+
   int _id = 1;
+
   final _pending = <int, Completer<dynamic>>{};
   final _subs = <int, void Function(dynamic)>{};
 
   /// Counts successful connections. Subscriptions do not survive a socket,
   /// so anything that subscribes once per connection compares against this.
   int generation = 0;
+
   Duration _backoff = const Duration(seconds: 1);
   Timer? _retryTimer;
+
   bool _closed = false;
   bool _authed = false;
 
   bool get isOnline => _authed;
 
-  Future<void> start() => _connect();
+  bool _started = false;
+
+  /// Starts the connection asynchronously.
+  /// The application can use unawaited(start()) so UI startup never waits
+  /// for Home Assistant, while tests and explicit callers can await it.
+  Future<void> start() {
+    if (_closed || _started) return Future<void>.value();
+    _started = true;
+    return _connect();
+  }
 
   Future<void> dispose() async {
     _closed = true;
+
     _retryTimer?.cancel();
+
     await _listen?.cancel();
     await _t?.close();
+
     _failPending();
   }
 
   Future<void> _connect() async {
-    if (_closed) return;
+    if (_closed) {
+      return;
+    }
 
     status.value = HaStatus.connecting;
 
     try {
       debugPrint('ha: connecting');
+
       _t = await transportFactory();
+
       debugPrint('ha: websocket connected');
     } catch (e, st) {
       debugPrint('ha: websocket connect failed: $e');
       debugPrint('$st');
+
       _retry();
       return;
     }
@@ -79,48 +101,74 @@ class HaConnection {
     _listen = _t!.messages.listen(
       _onMessage,
       onDone: () {
-        if (!_closed) _retry();
+        if (!_closed) {
+          _retry();
+        }
       },
       onError: (error) {
         debugPrint('ha: websocket error: $error');
-        if (!_closed) _retry();
+
+        if (!_closed) {
+          _retry();
+        }
       },
     );
   }
 
   void _failPending() {
-    for (final c in _pending.values) {
-      if (!c.isCompleted) c.completeError(StateError('socket closed'));
+    for (final completer in _pending.values) {
+      if (!completer.isCompleted) {
+        completer.completeError(StateError('socket closed'));
+      }
     }
+
     _pending.clear();
     _subs.clear();
   }
 
   void _retry() {
+    if (_closed || (_retryTimer?.isActive ?? false)) return;
+
     _authed = false;
     status.value = HaStatus.offline;
     _failPending();
-    _retryTimer?.cancel();
 
-    // Back off, but never so far that a panel left overnight takes minutes to
-    // notice HA came back.
-    _retryTimer = Timer(_backoff, _connect);
+    final listen = _listen;
+    _listen = null;
+    if (listen != null) {
+      unawaited(listen.cancel().catchError((Object _) {}));
+    }
+
+    final transport = _t;
+    _t = null;
+    if (transport != null) {
+      unawaited(transport.close().catchError((Object _) {}));
+    }
+
+    final delay = _backoff;
+    _retryTimer = Timer(delay, () {
+      _retryTimer = null;
+      unawaited(_connect());
+    });
+
     _backoff = Duration(
       milliseconds: min(_backoff.inMilliseconds * 2, 15000),
     );
   }
-
   void _onMessage(String raw) {
     debugPrint('ha: message: $raw');
 
     final dynamic msg;
+
     try {
       msg = jsonDecode(raw);
     } catch (_) {
       return;
     }
 
-    if (msg is! Map) return;
+    if (msg is! Map) {
+      return;
+    }
 
     switch (msg['type']) {
       case 'auth_required':
@@ -134,18 +182,23 @@ class HaConnection {
         _authed = true;
         _backoff = const Duration(seconds: 1);
         status.value = HaStatus.online;
+
         _seed();
 
       case 'result':
-        final c = _pending.remove(msg['id']);
-        if (c == null) return;
+        final completer = _pending.remove(msg['id']);
+
+        if (completer == null) {
+          return;
+        }
 
         if (msg['success'] == true) {
-          c.complete(msg['result']);
+          completer.complete(msg['result']);
         } else {
-          final err = msg['error'];
-          c.completeError(
-            StateError(err is Map ? '${err['message']}' : 'call failed'),
+          final error = msg['error'];
+
+          completer.completeError(
+            StateError(error is Map ? '${error['message']}' : 'call failed'),
           );
         }
 
@@ -160,14 +213,17 @@ class HaConnection {
     }
 
     final id = _id++;
-    final c = Completer<dynamic>();
-    _pending[id] = c;
+    final completer = Completer<dynamic>();
+
+    _pending[id] = completer;
+
     _t!.send(jsonEncode({'id': id, ...payload}));
-    return c.future;
+
+    return completer.future;
   }
 
-  /// Same shape as the frontend's connection.subscribeMessage. Resolves to an
-  /// unsubscribe function.
+  /// Same shape as the frontend's connection.subscribeMessage.
+  /// Resolves to an unsubscribe function.
   Future<Future<void> Function()> subscribe(
     Map<String, dynamic> payload,
     void Function(dynamic event) onEvent,
@@ -177,63 +233,66 @@ class HaConnection {
     }
 
     final id = _id++;
+
     _subs[id] = onEvent;
-    final c = Completer<dynamic>();
-    _pending[id] = c;
+
+    final completer = Completer<dynamic>();
+    _pending[id] = completer;
 
     _t!.send(jsonEncode({'id': id, ...payload}));
 
-    return c.future
+    return completer.future
         .then(
           (_) => () async {
             _subs.remove(id);
+
             try {
-              await send({
-                'type': 'unsubscribe_events',
-                'subscription': id,
-              });
+              await send({'type': 'unsubscribe_events', 'subscription': id});
             } catch (_) {
-              // already gone; nothing to release
+              // The socket may already be gone.
+              // There is nothing left to release locally.
             }
           },
         )
-        .catchError((Object e) {
+        .catchError((Object error) {
           _subs.remove(id);
-          throw e;
+          throw error;
         });
   }
 
-  /// get_states once, then every state_changed. Not subscribe_entities: its
-  /// compressed diff format is more code to get right, and a panel's handful
-  /// of cards filters client-side cheaply.
+  /// get_states once, then every state_changed. Not subscribe_entities:
+  /// its compressed diff format is more code to get right, and a panel's
+  /// handful of cards filters client-side cheaply.
   Future<void> _seed() async {
     try {
       final list = await send({'type': 'get_states'}) as List;
 
       states.replaceAll({
         for (final s in list.cast<Map>())
-          s['entity_id'] as String:
-              HaState.fromJson(s.cast<String, dynamic>()),
+          s['entity_id'] as String: HaState.fromJson(s.cast<String, dynamic>()),
       });
 
       await subscribe(
-        {
-          'type': 'subscribe_events',
-          'event_type': 'state_changed',
-        },
-        (ev) {
-          final d = (ev as Map?)?['data'];
-          if (d is! Map) return;
+        {'type': 'subscribe_events', 'event_type': 'state_changed'},
+        (event) {
+          final data = (event as Map?)?['data'];
 
-          final id = d['entity_id'];
-          if (id is! String) return;
+          if (data is! Map) {
+            return;
+          }
 
-          final ns = d['new_state'];
+          final entityId = data['entity_id'];
+
+          if (entityId is! String) {
+            return;
+          }
+
+          final newState = data['new_state'];
 
           states.update(
-            id,
-            ns is Map
-                ? HaState.fromJson(ns.cast<String, dynamic>())
+            entityId,
+            newState is Map
+                ? HaState.fromJson(newState.cast<String, dynamic>())
                 : null,
           );
         },
@@ -242,13 +301,31 @@ class HaConnection {
       generation++;
       onReady?.call();
     } catch (e) {
-      debugPrint('seed failed: $e');
+      debugPrint('ha: initial state seed failed: $e');
+      if (!_closed) _retry();
     }
   }
 
-  /// False when HA refused it (a wrong alarm code, say) or the socket is
-  /// down; the reason goes to the log. Most cards fire and forget; the alarm
-  /// card's keypad needs the answer.
+  /// False when HA refused the service (a wrong alarm code, for example)
+  /// or the socket is down.
+  ///
+  /// The transport/protocol error is converted here into the boolean result
+  /// expected by the UI layer. Callers therefore do not need to catch
+  /// WebSocket errors for ordinary service calls.
+
+  Future<HaPanels?> fetchPanels() async {
+    try {
+      final result = await send({
+        'type': 'get_panels',
+      });
+
+      return HaPanels.fromJson(result);
+    } catch (error) {
+      debugPrint('ha: get_panels failed: $error');
+      return null;
+    }
+  }
+
   Future<bool> callService(
     String domain,
     String service, [
@@ -261,20 +338,22 @@ class HaConnection {
         'service': service,
         'service_data': data ?? const {},
       });
+
       return true;
-    } catch (e) {
-      debugPrint('call_service $domain.$service failed: $e');
+    } catch (error) {
+      debugPrint('ha: call_service $domain.$service failed: $error');
+
       return false;
     }
   }
 
   Future<Map<String, dynamic>> fetchLovelace(String? urlPath) async {
-    final r = await send({
+    final result = await send({
       'type': 'lovelace/config',
       'url_path': (urlPath == null || urlPath.isEmpty) ? null : urlPath,
       'force': false,
     });
 
-    return (r as Map).cast<String, dynamic>();
+    return (result as Map).cast<String, dynamic>();
   }
 }

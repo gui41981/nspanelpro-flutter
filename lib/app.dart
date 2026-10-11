@@ -7,7 +7,6 @@ import 'package:path_provider/path_provider.dart';
 
 import 'audio/announcer.dart';
 import 'cards/env.dart';
-import 'cards/registry.dart';
 import 'mqtt/bridge.dart';
 import 'mqtt/client.dart';
 import 'util/auto_brightness.dart';
@@ -18,14 +17,14 @@ import 'config/dashboard.dart';
 import 'config/screensaver.dart';
 import 'config/settings.dart';
 import 'ha/connection.dart';
+import 'ha/panels.dart';
 import 'ha/states.dart';
 import 'ha/transport.dart';
 import 'ui/motion.dart';
-import 'ui/pager.dart';
+import 'ui/height_pager.dart';
 import 'ui/screensaver.dart';
 import 'ui/setup_screen.dart';
 import 'ui/theme.dart';
-import 'ui/warmup.dart';
 import 'update/updater.dart';
 import 'util/proximity.dart';
 
@@ -146,11 +145,10 @@ class Dashboard extends StatefulWidget {
 class _DashboardState extends State<Dashboard> {
   final _frames = FrameWatch();
   int _shown = 0; // the page on screen; only it animates its cards in
-  bool _warm = false;
-  Timer? _warmTimer;
   late final HaStates _states = HaStates();
   late final HaConnection _conn;
-  late final PanelEnv _env;
+  late PanelEnv _env;
+  HaPanels? _panels;
   List<PanelPage> _pages = const [];
   String? _error;
   Future<void> Function()? _unsubLovelace;
@@ -196,6 +194,7 @@ class _DashboardState extends State<Dashboard> {
       states: _states,
       conn: _conn,
       settings: widget.settings,
+      panels: _panels,
       play: (ref) => _announcer.play(ref),
     );
 
@@ -205,7 +204,6 @@ class _DashboardState extends State<Dashboard> {
       try {
         final cfg = (jsonDecode(cached) as Map).cast<String, dynamic>();
         _pages = pagesFromLovelace(cfg);
-        _scheduleWarmup();
         _saverFromDashboard = ScreensaverConfig.findInLovelace(cfg);
       } catch (_) {
         // stale or unparsable cache; the fetch will fix it
@@ -214,7 +212,7 @@ class _DashboardState extends State<Dashboard> {
 
     _conn.onReady = _loadConfig;
     _conn.status.addListener(_onStatus);
-    _conn.start();
+    unawaited(_conn.start());
     _armIdle();
     _announcer = Announcer(settings: widget.settings, conn: _conn);
     // host and user only - the password never goes anywhere near a log
@@ -322,28 +320,6 @@ class _DashboardState extends State<Dashboard> {
       (_) => _publishDiagnostics(),
     );
   }
-
-  /// A second after the pages appear - the cards have risen into place by
-  /// then - every page is painted once, hidden, so the first swipe does not
-  /// pay for shader compilation. See [Warmup].
-  void _scheduleWarmup() {
-    _warmTimer?.cancel();
-    if (_pages.length < 2) return;
-    _warmTimer = Timer(const Duration(milliseconds: 1500), () {
-      if (mounted) setState(() => _warm = true);
-    });
-  }
-
-  Widget _page(PanelPage p, {required bool animate}) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      for (var i = 0; i < p.cards.length; i++) ...[
-        if (i > 0) const SizedBox(height: Ns.gap),
-        // cards rise into place, staggered, when a page first shows
-        Enter(index: i, animate: animate, child: buildCard(p.cards[i], _env)),
-      ],
-    ],
-  );
 
   void _publishUpdate() {
     final u = widget.updater;
@@ -465,7 +441,6 @@ class _DashboardState extends State<Dashboard> {
   void dispose() {
     _hold?.cancel();
     _diag?.cancel();
-    _warmTimer?.cancel();
     _updateCheck?.cancel();
     for (final n in [
       widget.updater.latest,
@@ -495,14 +470,75 @@ class _DashboardState extends State<Dashboard> {
   }
 
   Future<void> _loadConfig() async {
+    HaPanels? panels;
+
+    try {
+      panels = await _conn.fetchPanels();
+      debugPrint(
+        'ha: get_panels -> ${panels?.items.length ?? 0} panels',
+      );
+    } catch (e) {
+      debugPrint('ha: get_panels unavailable: $e');
+    }
+
+    if (!mounted) return;
+
+    _panels = panels;
+    _env = PanelEnv(
+      states: _states,
+      conn: _conn,
+      settings: widget.settings,
+      panels: _panels,
+      play: (ref) => _announcer.play(ref),
+    );
+
     final path = widget.settings.dashboardPath;
     try {
       final cfg = await _conn.fetchLovelace(path);
+
+      final views = cfg['views'];
+      debugPrint(
+        'ha: dashboard path=${path.isEmpty ? '(default)' : path} '
+        'keys=${cfg.keys.toList()} '
+        'views=${views is List ? views.length : 0}',
+      );
+
+      if (views is List) {
+        for (var i = 0; i < views.length; i++) {
+          final view = views[i];
+          if (view is Map) {
+            debugPrint(
+              'ha: view[$i] '
+              'path=${view['path']} '
+              'title=${view['title']} '
+              'icon=${view['icon']} '
+              'cards=${view['cards'] is List ? (view['cards'] as List).length : 0} '
+              'sections=${view['sections'] is List ? (view['sections'] as List).length : 0}',
+            );
+
+            final cards = view['cards'];
+            if (cards is List) {
+              for (var j = 0; j < cards.length; j++) {
+                _logDashboardCard(cards[j], 'view[$i].cards[$j]');
+              }
+            }
+          }
+        }
+      }
+
       final pages = pagesFromLovelace(cfg);
+
+      debugPrint('ha: parsed pages=${pages.length}');
+      for (var i = 0; i < pages.length; i++) {
+        final types = pages[i].cards
+            .map((c) => c['type']?.toString() ?? '<none>')
+            .toList();
+        debugPrint('ha: parsed page[$i] cards=$types');
+      }
+
       if (!mounted) return;
       setState(() {
         _pages = pages;
-        _scheduleWarmup();
         _saverFromDashboard = ScreensaverConfig.findInLovelace(cfg);
         // a fresh panel has no cached config, so this is the first moment
         // there is a screensaver to arm; a touch would arm it too, but a
@@ -534,6 +570,45 @@ class _DashboardState extends State<Dashboard> {
   /// "Not found" from lovelace/config means one of two different things, and
   /// the person standing at the panel cannot tell which. Ask HA which
   /// dashboards exist and say so.
+  void _logDashboardCard(dynamic card, String location) {
+    if (card is! Map) {
+      debugPrint('ha: card $location type=<non-map>');
+      return;
+    }
+
+    final type = card['type']?.toString() ?? '<none>';
+    final children = card['cards'];
+
+    final layout = <String, dynamic>{};
+    for (final key in const [
+      'height',
+      'width',
+      'columns',
+      'square',
+      'aspect_ratio',
+      'layout',
+      'view_layout',
+      'card_mod',
+    ]) {
+      if (card.containsKey(key)) {
+        layout[key] = card[key];
+      }
+    }
+
+    debugPrint(
+      'ha: card $location type=$type '
+      'entity=${card['entity']} '
+      'cards=${children is List ? children.length : 0} '
+      'layout=${layout.isEmpty ? '{}' : layout}',
+    );
+
+    if (children is List) {
+      for (var i = 0; i < children.length; i++) {
+        _logDashboardCard(children[i], '$location.cards[$i]');
+      }
+    }
+  }
+
   Future<String> _explain(String path, Object e) async {
     final name = path.isEmpty ? 'the default dashboard' : '"$path"';
     List<Map<String, dynamic>> list = const [];
@@ -745,16 +820,15 @@ class _DashboardState extends State<Dashboard> {
         child: Stack(
           children: [
             if (_pages.isNotEmpty)
-              PanelPager(
+              HeightPager(
+                pages: _pages,
+                env: _env,
                 jump: _pageJump,
                 onPage: (i) {
                   _shown = i;
                   _bridge?.page(i);
                 },
-                pages: [
-                  for (var i = 0; i < _pages.length; i++)
-                    _page(_pages[i], animate: i == _shown),
-                ],
+                animatePage: (i) => i == _shown,
               )
             else
               Center(
@@ -770,11 +844,6 @@ class _DashboardState extends State<Dashboard> {
                     ),
                   ),
                 ),
-              ),
-            if (_warm)
-              Warmup(
-                onDone: () => setState(() => _warm = false),
-                children: [for (final p in _pages) _page(p, animate: false)],
               ),
             if (_error != null && _pages.isNotEmpty)
               Positioned(

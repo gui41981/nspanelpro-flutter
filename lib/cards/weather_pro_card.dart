@@ -1,14 +1,14 @@
-import 'dart:convert';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 
 import '../config/dashboard.dart';
-import '../ha/connection.dart';
 import '../ha/states.dart';
 import '../util/fmt.dart';
 import '../util/icons.dart';
+import '../ha/connection.dart';
 import 'env.dart';
+import 'light_control.dart';
 
 const _daysShort = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
@@ -37,6 +37,96 @@ const _months = [
   'décembre',
 ];
 
+class _WeatherClock extends StatefulWidget {
+  const _WeatherClock();
+
+  @override
+  State<_WeatherClock> createState() => _WeatherClockState();
+}
+
+class _WeatherClockState extends State<_WeatherClock> {
+  late DateTime _now;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _now = DateTime.now();
+
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) {
+        return;
+      }
+
+      final now = DateTime.now();
+
+      // The display only has minute precision. Avoid rebuilding this
+      // subtree when the displayed value did not actually change.
+      if (now.minute != _now.minute ||
+          now.hour != _now.hour ||
+          now.day != _now.day ||
+          now.month != _now.month ||
+          now.year != _now.year) {
+        setState(() {
+          _now = now;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String _timeText() {
+    final h = _now.hour.toString().padLeft(2, '0');
+    final m = _now.minute.toString().padLeft(2, '0');
+
+    return '$h:$m';
+  }
+
+  String _dateText() {
+    final weekday = _daysLong[_now.weekday - 1];
+    final month = _months[_now.month - 1];
+
+    return '$weekday ${_now.day} $month ${_now.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          _timeText(),
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 76,
+            fontWeight: FontWeight.w700,
+            height: .88,
+            letterSpacing: -3,
+            shadows: [Shadow(blurRadius: 8, color: Colors.black87)],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          _dateText(),
+          style: const TextStyle(
+            color: Color(0xF2FFFFFF),
+            fontSize: 20,
+            fontWeight: FontWeight.w500,
+            height: 1.0,
+            shadows: [Shadow(blurRadius: 5, color: Colors.black87)],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class WeatherProCard extends StatefulWidget {
   const WeatherProCard({super.key, required this.config, required this.env});
 
@@ -50,6 +140,9 @@ class WeatherProCard extends StatefulWidget {
 class _WeatherProCardState extends State<WeatherProCard> {
   CardConfig get c => widget.config;
 
+  int _buildCount = 0;
+  String? _lastBackgroundUrl;
+
   String get entity => c.str('entity') ?? '';
 
   List<dynamic>? _forecast;
@@ -57,22 +150,11 @@ class _WeatherProCardState extends State<WeatherProCard> {
   Future<void> Function()? _unsub;
   bool _subscribing = false;
 
-  late DateTime _now;
-  Timer? _clockTimer;
+  final Map<String, ImageProvider> _imageProviders = <String, ImageProvider>{};
 
   @override
   void initState() {
     super.initState();
-
-    _now = DateTime.now();
-
-    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) {
-        setState(() {
-          _now = DateTime.now();
-        });
-      }
-    });
 
     widget.env.conn.status.addListener(_maybeSubscribe);
     _maybeSubscribe();
@@ -80,9 +162,9 @@ class _WeatherProCardState extends State<WeatherProCard> {
 
   @override
   void dispose() {
-    _clockTimer?.cancel();
     widget.env.conn.status.removeListener(_maybeSubscribe);
     _unsub?.call();
+    _imageProviders.clear();
     super.dispose();
   }
 
@@ -238,8 +320,14 @@ class _WeatherProCardState extends State<WeatherProCard> {
         MediaQuery.sizeOf(context) * MediaQuery.devicePixelRatioOf(context);
 
     final targetWidth = width ?? mediaSize.width.round();
-
     final targetHeight = height ?? mediaSize.height.round();
+
+    final key = '$url|${targetWidth}x$targetHeight';
+
+    final cached = _imageProviders[key];
+    if (cached != null) {
+      return cached;
+    }
 
     debugPrint(
       '[WEATHER_IMAGE] provider'
@@ -249,13 +337,17 @@ class _WeatherProCardState extends State<WeatherProCard> {
       ' dpr=${MediaQuery.devicePixelRatioOf(context)}',
     );
 
-    return ResizeImage(
+    final provider = ResizeImage(
       NetworkImage(url),
       width: targetWidth,
       height: targetHeight,
       policy: ResizeImagePolicy.fit,
       allowUpscaling: false,
     );
+
+    _imageProviders[key] = provider;
+
+    return provider;
   }
 
   String _conditionLabel(HaState? s) {
@@ -332,20 +424,6 @@ class _WeatherProCardState extends State<WeatherProCard> {
     return friendlyName(s, entity);
   }
 
-  String _timeText() {
-    final h = _now.hour.toString().padLeft(2, '0');
-    final m = _now.minute.toString().padLeft(2, '0');
-
-    return '$h:$m';
-  }
-
-  String _dateText() {
-    final weekday = _daysLong[_now.weekday - 1];
-    final month = _months[_now.month - 1];
-
-    return '$weekday ${_now.day} $month ${_now.year}';
-  }
-
   String _forecastDate(dynamic forecast) {
     final map = forecast is Map ? forecast : const {};
 
@@ -376,107 +454,99 @@ class _WeatherProCardState extends State<WeatherProCard> {
     return num.tryParse(value.toString());
   }
 
-  Future<void> _setLights(List<String> entities, bool on) async {
-    if (entities.isEmpty) {
-      return;
+
+  List<String> _lightEntities(CardConfig light) {
+    final configured = light['entities'];
+
+    if (configured is List) {
+      final values = configured
+          .map((value) => value.toString().trim())
+          .where((value) => value.isNotEmpty)
+          .toList();
+
+      if (values.isNotEmpty) {
+        return values;
+      }
     }
 
-    try {
-      await widget.env.conn.callService(
-        'homeassistant',
-        on ? 'turn_on' : 'turn_off',
-        {'entity_id': entities},
-      );
-    } catch (e) {
-      debugPrint('weather_pro_card light service failed: $e');
-    }
+    final entity = light.str('entity')?.trim();
+    return entity == null || entity.isEmpty ? const [] : [entity];
   }
 
-  Widget _lightButton({
-    required String label,
-    required String icon,
-    required List<String> entities,
-  }) {
-    return ValueListenableBuilder<HaState?>(
-      valueListenable: widget.env.states.listen(entities.first),
-      builder: (context, firstState, _) {
-        return _LightButtonContent(
-          label: label,
-          icon: icon,
-          entities: entities,
-          firstState: firstState,
-          states: widget.env.states,
-          conn: widget.env.conn,
-          onSet: _setLights,
-        );
-      },
+  List<CardConfig> get _embeddedLights => c
+      .maps('_embedded_lights')
+      .where((light) => _lightEntities(light).isNotEmpty)
+      .toList();
+
+  String _lightIcon(CardConfig light) {
+    final configured = light.str('icon');
+    if (configured != null && configured.trim().isNotEmpty) {
+      return configured;
+    }
+
+    // Les icônes sont choisies à partir du titre YAML, jamais de l'entité.
+    final title = (light.str('title') ?? light.str('name') ?? '')
+        .toLowerCase();
+
+    if (title.contains('salon')) return 'mdi:sofa';
+    if (title.contains('tv')) return 'mdi:television';
+    if (title.contains('veilleuse')) return 'mdi:floor-lamp';
+    if (title.contains('cuisine')) return 'mdi:silverware-fork-knife';
+
+    return 'mdi:lightbulb-on-outline';
+  }
+
+  Widget _lightButton(CardConfig light) {
+    final entities = _lightEntities(light);
+    final fallback = entities.isEmpty ? 'Light' : entities.first;
+    final title = light.titleOr(fallback);
+
+    return LightControl(
+      label: title,
+      icon: _lightIcon(light),
+      entities: entities,
+      env: widget.env,
     );
   }
 
   Widget _switchesBlock() {
+    final lights = _embeddedLights;
+
+    if (lights.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final screenWidth = MediaQuery.sizeOf(context).width;
-
         final isLargePanel = screenWidth >= 600;
-
         final width = isLargePanel
             ? (screenWidth - 80).clamp(520.0, 680.0)
             : 430.0;
+        final rowCount = (lights.length + 1) ~/ 2;
 
         return SizedBox(
           width: width,
-          child: Row(
+          child: Column(
             children: [
-              Expanded(
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: _lightButton(
-                        label: 'Salon',
-                        icon: 'mdi:sofa',
-                        entities: const [
-                          'light.wiz_tunable_white_992e58',
-                          'light.wiz_st64_filament_2',
-                        ],
+              for (var row = 0; row < rowCount; row++) ...[
+                if (row > 0) SizedBox(height: isLargePanel ? 16 : 7),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _lightButton(lights[row * 2]),
                       ),
-                    ),
-                    SizedBox(height: isLargePanel ? 16 : 7),
-                    Expanded(
-                      child: _lightButton(
-                        label: 'Veilleuse',
-                        icon: 'mdi:floor-lamp',
-                        entities: const ['light.wiz_rgbw_tunable_120924'],
+                      SizedBox(width: isLargePanel ? 10 : 8),
+                      Expanded(
+                        child: row * 2 + 1 < lights.length
+                            ? _lightButton(lights[row * 2 + 1])
+                            : const SizedBox.shrink(),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              SizedBox(width: isLargePanel ? 10 : 8),
-              Expanded(
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: _lightButton(
-                        label: 'TV',
-                        icon: 'mdi:television',
-                        entities: const ['light.wiz_rgbw_tunable_32ccbc'],
-                      ),
-                    ),
-                    SizedBox(height: isLargePanel ? 16 : 7),
-                    Expanded(
-                      child: _lightButton(
-                        label: 'Cuisine',
-                        icon: 'mdi:silverware-fork-knife',
-                        entities: const [
-                          'light.wiz_tunable_white_2fe460',
-                          'light.wiz_tunable_white_842be2',
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              ],
             ],
           ),
         );
@@ -486,6 +556,10 @@ class _WeatherProCardState extends State<WeatherProCard> {
 
   @override
   Widget build(BuildContext context) {
+    _buildCount++;
+
+    debugPrint('[WEATHER_BUILD] count=$_buildCount entity=$entity');
+
     return ValueListenableBuilder<HaState?>(
       valueListenable: widget.env.states.listen(entity),
       builder: (context, s, _) {
@@ -508,6 +582,16 @@ class _WeatherProCardState extends State<WeatherProCard> {
         final forecast = _forecastList(s);
 
         final background = _backgroundUrl(s);
+
+        if (_lastBackgroundUrl != background) {
+          debugPrint(
+            '[WEATHER_BACKGROUND_CHANGE]'
+            ' from="$_lastBackgroundUrl"'
+            ' to="$background"'
+            ' condition="${_condition(s)}"',
+          );
+          _lastBackgroundUrl = background;
+        }
 
         final location = _location(s);
 
@@ -617,39 +701,14 @@ class _WeatherProCardState extends State<WeatherProCard> {
                         const SizedBox(width: 12),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              _timeText(),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 76,
-                                fontWeight: FontWeight.w700,
-                                height: .88,
-                                letterSpacing: -3,
-                                shadows: [
-                                  Shadow(blurRadius: 8, color: Colors.black87),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              _dateText(),
-                              style: const TextStyle(
-                                color: Color(0xF2FFFFFF),
-                                fontSize: 20,
-                                fontWeight: FontWeight.w500,
-                                height: 1.0,
-                                shadows: [
-                                  Shadow(blurRadius: 5, color: Colors.black87),
-                                ],
-                              ),
-                            ),
-                          ],
+                          children: [const _WeatherClock()],
                         ),
                       ],
                     ),
 
-                    if (c.boolOr('show_switches', false) && !broken)
+                    if (c.boolOr('show_switches', false) &&
+                        !broken &&
+                        _embeddedLights.isNotEmpty)
                       Expanded(
                         child: Padding(
                           padding: const EdgeInsets.only(top: 14, bottom: 14),
@@ -898,896 +957,6 @@ class _WeatherProCardState extends State<WeatherProCard> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _LightButtonContent extends StatelessWidget {
-  const _LightButtonContent({
-    required this.label,
-    required this.icon,
-    required this.entities,
-    required this.firstState,
-    required this.states,
-    required this.conn,
-    required this.onSet,
-  });
-
-  final String label;
-  final String icon;
-  final List<String> entities;
-  final HaState? firstState;
-  final dynamic states;
-  final dynamic conn;
-  final Future<void> Function(List<String> entities, bool on) onSet;
-
-  @override
-  Widget build(BuildContext context) {
-    return _MultiLightButton(
-      label: label,
-      icon: icon,
-      entities: entities,
-      firstState: firstState,
-      states: states,
-      conn: conn,
-      onSet: onSet,
-    );
-  }
-}
-
-class _MultiLightButton extends StatefulWidget {
-  const _MultiLightButton({
-    required this.label,
-    required this.icon,
-    required this.entities,
-    required this.firstState,
-    required this.states,
-    required this.conn,
-    required this.onSet,
-  });
-
-  final String label;
-  final String icon;
-  final List<String> entities;
-  final HaState? firstState;
-  final dynamic states;
-  final dynamic conn;
-  final Future<void> Function(List<String> entities, bool on) onSet;
-
-  @override
-  State<_MultiLightButton> createState() => _MultiLightButtonState();
-}
-
-class _MultiLightButtonState extends State<_MultiLightButton> {
-
-  @override
-  Widget build(BuildContext context) {
-    final List<Listenable> listenables = [
-      for (final entity in widget.entities)
-        widget.states.listen(entity) as Listenable,
-    ];
-
-    return AnimatedBuilder(
-      animation: Listenable.merge(listenables),
-      builder: (context, _) {
-        final on = widget.entities.any(
-          (entity) => widget.states.get(entity)?.isOn == true,
-        );
-
-        return _button(on);
-      },
-    );
-  }
-
-  List<HaState> _states() {
-    return [
-      for (final entity in widget.entities)
-        if (widget.states.get(entity) is HaState)
-          widget.states.get(entity) as HaState,
-    ];
-  }
-
-  List<String> _effectList() {
-    final result = <String>{};
-
-    for (final state in _states()) {
-      final effects = state.attributes['effect_list'];
-
-      if (effects is List) {
-        for (final effect in effects) {
-          final value = effect?.toString().trim();
-
-          if (value != null && value.isNotEmpty) {
-            result.add(value);
-          }
-        }
-      }
-    }
-
-    return result.toList()..sort();
-  }
-
-  Set<String> _colorModes() {
-    final result = <String>{};
-
-    for (final state in _states()) {
-      final modes = state.attributes['supported_color_modes'];
-
-      if (modes is List) {
-        for (final mode in modes) {
-          final value = mode?.toString().trim();
-
-          if (value != null && value.isNotEmpty) {
-            result.add(value);
-          }
-        }
-      }
-    }
-
-    return result;
-  }
-
-  bool _supportsColor() {
-    final modes = _colorModes();
-
-    return modes.contains('rgb') ||
-        modes.contains('rgbw') ||
-        modes.contains('rgbww') ||
-        modes.contains('hs') ||
-        modes.contains('xy');
-  }
-
-  bool _supportsTemperature() {
-    final modes = _colorModes();
-
-    return modes.contains('color_temp') ||
-        modes.contains('rgbww') ||
-        modes.contains('rgbw');
-  }
-
-  List<String> _entitiesWithCapability(bool Function(Set<String>) test) {
-    final result = <String>[];
-
-    for (final entity in widget.entities) {
-      final state = widget.states.get(entity);
-
-      if (state is! HaState) {
-        continue;
-      }
-
-      final modes = state.attributes['supported_color_modes'];
-
-      final normalized = <String>{};
-
-      if (modes is List) {
-        for (final mode in modes) {
-          normalized.add(mode.toString());
-        }
-      }
-
-      if (test(normalized)) {
-        result.add(entity);
-      }
-    }
-
-    return result;
-  }
-
-  int _brightness() {
-    for (final state in _states()) {
-      final value = state.attributes['brightness'];
-
-      if (value is num) {
-        return value.round().clamp(1, 255);
-      }
-    }
-
-    return 255;
-  }
-
-  int _red() {
-    for (final state in _states()) {
-      final rgb = state.attributes['rgb_color'];
-
-      if (rgb is List && rgb.length >= 3) {
-        return (rgb[0] as num).round().clamp(0, 255);
-      }
-    }
-
-    return 255;
-  }
-
-  int _green() {
-    for (final state in _states()) {
-      final rgb = state.attributes['rgb_color'];
-
-      if (rgb is List && rgb.length >= 3) {
-        return (rgb[1] as num).round().clamp(0, 255);
-      }
-    }
-
-    return 255;
-  }
-
-  int _blue() {
-    for (final state in _states()) {
-      final rgb = state.attributes['rgb_color'];
-
-      if (rgb is List && rgb.length >= 3) {
-        return (rgb[2] as num).round().clamp(0, 255);
-      }
-    }
-
-    return 255;
-  }
-
-  int _colorTemperature() {
-    for (final state in _states()) {
-      final kelvin = state.attributes['color_temp_kelvin'];
-
-      if (kelvin is num) {
-        return kelvin.round();
-      }
-
-      final mired = state.attributes['color_temp'];
-
-      if (mired is num && mired > 0) {
-        return (1000000 / mired).round();
-      }
-    }
-
-    return 4000;
-  }
-
-  int _minColorTemperature() {
-    int? result;
-
-    for (final state in _states()) {
-      final value = state.attributes['min_color_temp_kelvin'];
-
-      if (value is num) {
-        final current = value.round();
-
-        if (result == null || current > result) {
-          result = current;
-        }
-      }
-    }
-
-    return result ?? 2000;
-  }
-
-  int _maxColorTemperature() {
-    int? result;
-
-    for (final state in _states()) {
-      final value = state.attributes['max_color_temp_kelvin'];
-
-      if (value is num) {
-        final current = value.round();
-
-        if (result == null || current < result) {
-          result = current;
-        }
-      }
-    }
-
-    return result ?? 6500;
-  }
-
-  Future<void> _callLight(Map<String, dynamic> data) async {
-    final entities = data.remove('entity_id') as List<String>?;
-
-    if (entities == null || entities.isEmpty) {
-      return;
-    }
-
-    final serviceData = <String, dynamic>{'entity_id': entities, ...data};
-
-    debugPrint(
-      'weather_pro_card light.turn_on: '
-      '${jsonEncode(serviceData)}',
-    );
-
-    try {
-      await widget.conn.callService('light', 'turn_on', serviceData);
-    } catch (e) {
-      debugPrint('weather_pro_card light control failed: $e');
-    }
-  }
-
-  Future<void> _setBrightness(double value) async {
-    final entities = _entitiesWithCapability((_) => true);
-
-    if (entities.isEmpty) {
-      return;
-    }
-
-    await _callLight({'entity_id': entities, 'brightness': value.round()});
-  }
-
-  Future<void> _setColor(Color color) async {
-    final entities = _entitiesWithCapability(
-      (modes) =>
-          modes.contains('rgb') ||
-          modes.contains('rgbw') ||
-          modes.contains('rgbww') ||
-          modes.contains('hs') ||
-          modes.contains('xy'),
-    );
-
-    if (entities.isEmpty) {
-      return;
-    }
-
-    await _callLight({
-      'entity_id': entities,
-      'rgb_color': [color.r * 255.0, color.g * 255.0, color.b * 255.0],
-    });
-  }
-
-  Future<void> _setTemperature(double value) async {
-    final entities = _entitiesWithCapability(
-      (modes) =>
-          modes.contains('color_temp') ||
-          modes.contains('rgbw') ||
-          modes.contains('rgbww'),
-    );
-
-    if (entities.isEmpty) {
-      return;
-    }
-
-    await _callLight({
-      'entity_id': entities,
-      'color_temp_kelvin': value.round(),
-    });
-  }
-
-  Future<void> _setEffect(String effect) async {
-    final entities = <String>[];
-
-    for (final entity in widget.entities) {
-      final state = widget.states.get(entity);
-
-      if (state is! HaState) {
-        continue;
-      }
-
-      final effects = state.attributes['effect_list'];
-
-      if (effects is List &&
-          effects.map((e) => e.toString()).contains(effect)) {
-        entities.add(entity);
-      }
-    }
-
-    if (entities.isEmpty) {
-      return;
-    }
-
-    await _callLight({'entity_id': entities, 'effect': effect});
-  }
-
-  String? _currentEffect() {
-    String? current;
-
-    for (final state in _states()) {
-      final value = state.attributes['effect']?.toString().trim();
-
-      if (value == null || value.isEmpty || value == 'null') {
-        return null;
-      }
-
-      if (current == null) {
-        current = value;
-      } else if (current != value) {
-        return null;
-      }
-    }
-
-    return current;
-  }
-
-  Future<void> _showControlDialog() async {
-    if (!mounted) {
-      return;
-    }
-
-    final modes = _colorModes();
-    final hasColor = _supportsColor();
-    final hasTemperature = _supportsTemperature();
-    final effects = _effectList();
-          final currentEffect = _currentEffect();
-
-    var brightness = _brightness().toDouble();
-
-    var red = _red().toDouble();
-    var green = _green().toDouble();
-    var blue = _blue().toDouble();
-
-    final minTemperature = _minColorTemperature();
-
-    final maxTemperature = _maxColorTemperature();
-
-    var temperature = _colorTemperature()
-        .clamp(minTemperature, maxTemperature)
-        .toDouble();
-
-    final colors = <Color>[
-      Colors.white,
-      Colors.red,
-      Colors.orange,
-      Colors.yellow,
-      Colors.green,
-      Colors.cyan,
-      Colors.blue,
-      Colors.purple,
-      Colors.pink,
-    ];
-
-    await showDialog<void>(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: .70),
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final selectedColor = Color.fromARGB(
-              255,
-              red.round().clamp(0, 255),
-              green.round().clamp(0, 255),
-              blue.round().clamp(0, 255),
-            );
-
-            return AlertDialog(
-              backgroundColor: const Color(0xFF181818),
-              surfaceTintColor: Colors.transparent,
-              title: Row(
-                children: [
-                  Icon(mdi(widget.icon), color: Colors.white, size: 30),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      widget.label,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 25,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              content: SizedBox(
-                width: 560,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Puissance',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.brightness_low,
-                            color: Colors.white70,
-                          ),
-                          Expanded(
-                            child: Slider(
-                              value: brightness,
-                              min: 1,
-                              max: 255,
-                              divisions: 254,
-                              onChanged: (value) {
-                                setDialogState(() {
-                                  brightness = value;
-                                });
-
-                                _setBrightness(value);
-                              },
-                            ),
-                          ),
-                          SizedBox(
-                            width: 52,
-                            child: Text(
-                              '${(brightness / 255 * 100).round()} %',
-                              textAlign: TextAlign.right,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      if (hasColor) ...[
-                        const SizedBox(height: 18),
-                        const Text(
-                          'Couleur',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: [
-                            for (final color in colors)
-                              GestureDetector(
-                                onTap: () {
-                                  setDialogState(() {
-                                    red = color.r * 255.0.toDouble();
-                                    green = color.g * 255.0.toDouble();
-                                    blue = color.b * 255.0.toDouble();
-                                  });
-
-                                  _setColor(color);
-                                },
-                                child: Container(
-                                  width: 42,
-                                  height: 42,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: color,
-                                    border: Border.all(
-                                      color: Colors.white,
-                                      width:
-                                          selectedColor.toARGB32() ==
-                                              color.toARGB32()
-                                          ? 3
-                                          : 1,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 14),
-
-                        _rgbSlider(context, 'R', red, Colors.red, (value) {
-                          setDialogState(() {
-                            red = value;
-                          });
-
-                          _setColor(
-                            Color.fromARGB(
-                              255,
-                              value.round(),
-                              green.round(),
-                              blue.round(),
-                            ),
-                          );
-                        }),
-
-                        _rgbSlider(context, 'G', green, Colors.green, (value) {
-                          setDialogState(() {
-                            green = value;
-                          });
-
-                          _setColor(
-                            Color.fromARGB(
-                              255,
-                              red.round(),
-                              value.round(),
-                              blue.round(),
-                            ),
-                          );
-                        }),
-
-                        _rgbSlider(context, 'B', blue, Colors.blue, (value) {
-                          setDialogState(() {
-                            blue = value;
-                          });
-
-                          _setColor(
-                            Color.fromARGB(
-                              255,
-                              red.round(),
-                              green.round(),
-                              value.round(),
-                            ),
-                          );
-                        }),
-                      ],
-
-                      if (hasTemperature) ...[
-                        const SizedBox(height: 18),
-                        const Text(
-                          'Température de couleur',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Icon(Icons.thermostat, color: Colors.white70),
-                            Expanded(
-                              child: Slider(
-                                value: temperature.clamp(
-                                  minTemperature.toDouble(),
-                                  maxTemperature.toDouble(),
-                                ),
-                                min: minTemperature.toDouble(),
-                                max: maxTemperature.toDouble(),
-                                onChanged: (value) {
-                                  setDialogState(() {
-                                    temperature = value;
-                                  });
-
-                                  _setTemperature(value);
-                                },
-                              ),
-                            ),
-                            SizedBox(
-                              width: 70,
-                              child: Text(
-                                '${temperature.round()} K',
-                                textAlign: TextAlign.right,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-
-                      if (effects.isNotEmpty) ...[
-                        const SizedBox(height: 18),
-                        const Text(
-                          'Effet',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        DropdownButtonFormField<String>(
-                          initialValue: effects.contains(currentEffect)
-                              ? currentEffect
-                              : null,
-                          dropdownColor: const Color(0xFF282828),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 17,
-                          ),
-                          decoration: InputDecoration(
-                            filled: true,
-                            fillColor: const Color(0xFF282828),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide.none,
-                            ),
-                          ),
-                          hint: const Text(
-                            'Choisir un effet',
-                            style: TextStyle(color: Colors.white70),
-                          ),
-                          items: [
-                            for (final effect in effects)
-                              DropdownMenuItem(
-                                value: effect,
-                                child: Text(effect),
-                              ),
-                          ],
-                          onChanged: (effect) {
-                            if (effect != null) {
-                              _setEffect(effect);
-                            }
-                          },
-                        ),
-                      ],
-
-                      if (!hasColor && !hasTemperature && effects.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 12),
-                          child: Text(
-                            'Cette lampe ne propose aucun réglage avancé.',
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ),
-
-                      if (modes.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        Text(
-                          'Modes : ${modes.join(', ')}',
-                          style: const TextStyle(
-                            color: Colors.white38,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(dialogContext).pop();
-                  },
-                  child: const Text(
-                    'FERMER',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _rgbSlider(
-    BuildContext context,
-    String label,
-    double value,
-    Color color,
-    ValueChanged<double> onChanged,
-  ) {
-    return Row(
-      children: [
-        SizedBox(
-          width: 24,
-          child: Text(
-            label,
-            style: TextStyle(color: color, fontWeight: FontWeight.w800),
-          ),
-        ),
-        Expanded(
-          child: Slider(
-            value: value.clamp(0, 255),
-            min: 0,
-            max: 255,
-            divisions: 255,
-            activeColor: color,
-            onChanged: onChanged,
-          ),
-        ),
-        SizedBox(
-          width: 38,
-          child: Text(
-            value.round().toString(),
-            textAlign: TextAlign.right,
-            style: const TextStyle(color: Colors.white70, fontSize: 12),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _turnOffWithLastState() async {
-    debugPrint(
-      'weather_pro_card: save last state + turn off: '
-      '${jsonEncode(widget.entities)}',
-    );
-
-    try {
-      await widget.conn.callService(
-        'script',
-        'light_turn_off_save_last_state',
-        {
-          'entity_id': widget.entities,
-        },
-      );
-    } catch (e) {
-      debugPrint(
-        'weather_pro_card save last state + turn off failed: $e',
-      );
-    }
-  }
-
-  Future<void> _restoreLastState() async {
-    debugPrint(
-      'weather_pro_card: restore last state: '
-      '${jsonEncode(widget.entities)}',
-    );
-
-    try {
-      await widget.conn.callService(
-        'script',
-        'light_restore_last_state',
-        {
-          'entity_id': widget.entities,
-        },
-      );
-    } catch (e) {
-      debugPrint(
-        'weather_pro_card restore last state failed: $e',
-      );
-    }
-  }
-
-  Widget _button(bool on) {
-    final screenWidth = MediaQuery.sizeOf(context).width;
-
-    final isLargePanel = screenWidth >= 600;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(isLargePanel ? 20 : 12),
-        onTap: () async {
-          if (on) {
-            await _turnOffWithLastState();
-          } else {
-            await _restoreLastState();
-          }
-        },
-        onLongPress: _showControlDialog,
-        child: Ink(
-          decoration: BoxDecoration(
-            color: on ? const Color(0xAAFFFFFF) : const Color(0x66000000),
-            borderRadius: BorderRadius.circular(isLargePanel ? 20 : 12),
-            border: Border.all(
-              color: on ? const Color(0xDDFFFFFF) : const Color(0x66FFFFFF),
-              width: on && isLargePanel ? 2 : 1.5,
-            ),
-            boxShadow: on
-                ? [
-                    BoxShadow(
-                      color: const Color(0x55000000),
-                      blurRadius: isLargePanel ? 14 : 8,
-                      offset: const Offset(0, 4),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  mdi(widget.icon),
-                  size: isLargePanel ? 52 : 27,
-                  color: on ? Colors.black87 : Colors.white,
-                  shadows: on
-                      ? null
-                      : const [Shadow(blurRadius: 5, color: Colors.black87)],
-                ),
-                SizedBox(height: isLargePanel ? 14 : 10),
-                Text(
-                  widget.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: on ? Colors.black87 : Colors.white,
-                    fontSize: isLargePanel ? 27 : 18,
-                    fontWeight: FontWeight.w700,
-                    shadows: on
-                        ? null
-                        : const [Shadow(blurRadius: 5, color: Colors.black87)],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }
