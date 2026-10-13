@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../config/resolution.dart';
 import '../cards/env.dart';
 import '../cards/registry.dart';
 import '../config/dashboard.dart';
@@ -7,25 +8,11 @@ import 'motion.dart';
 import 'pager.dart';
 import 'theme.dart';
 
-/// Splits dashboard components into pages according to their actual card
-/// geometry.
+/// Splits dashboard components into pages according to their actual geometry.
 ///
-/// There is deliberately no device/model/card-count logic here.
-///
-/// Cards already expose their root height in their implementation:
-///   - most cards: 200
-///   - weather: 240
-///   - sensors: 130
-///   - weather-pro: configured height, or one full page
-///
-/// Layout cards are resolved recursively:
-///   - vertical-stack  -> sum of children + gaps
-///   - horizontal-stack -> tallest child
-///   - grid             -> tallest child in each row + row gaps
-///
-/// The important part is that cards are NOT rendered once for measurement and
-/// a second time for the real pager. They are built only in the real pager,
-/// preserving their normal Flutter layout/state.
+/// Layouts that fit remain intact. Oversized layouts are expanded into their
+/// children before pagination so that their contents continue on later pages.
+/// A built-in Home Assistant panel always occupies a page of its own.
 class HeightPager extends StatelessWidget {
   const HeightPager({
     super.key,
@@ -42,17 +29,29 @@ class HeightPager extends StatelessWidget {
   final ValueChanged<int>? onPage;
   final bool Function(int index)? animatePage;
 
-  List<CardConfig> _flattenCards() {
-    return [
-      for (final page in pages)
-        for (final card in page.cards) card,
-    ];
+  List<CardConfig> _flattenCards() => [
+        for (final page in pages)
+          for (final card in page.cards) card,
+      ];
+
+  bool _isBuiltInPanel(CardConfig card) =>
+      resolveCard(card, panels: env.panels).kind ==
+      ResolvedCardKind.builtInPanel;
+
+  bool _containsBuiltInPanel(CardConfig card) {
+    if (_isBuiltInPanel(card)) return true;
+
+    for (final child in card.maps('cards')) {
+      if (_containsBuiltInPanel(child)) return true;
+    }
+
+    return false;
   }
 
   double _cardHeight(CardConfig card, double availablePageHeight) {
-    final type = cardType(card);
+    if (_isBuiltInPanel(card)) return availablePageHeight;
 
-    switch (type) {
+    switch (cardType(card)) {
       case 'nspanel-light-card':
       case 'nspanel-cover-card':
       case 'nspanel-climate-card':
@@ -80,17 +79,10 @@ class HeightPager extends StatelessWidget {
 
       case 'vertical-stack':
         final children = card.maps('cards');
-        if (children.isEmpty) {
-          return 0;
-        }
-
         var total = 0.0;
 
         for (var i = 0; i < children.length; i++) {
-          if (i > 0) {
-            total += Ns.gap;
-          }
-
+          if (i > 0) total += Ns.gap;
           total += _cardHeight(children[i], availablePageHeight);
         }
 
@@ -98,10 +90,6 @@ class HeightPager extends StatelessWidget {
 
       case 'horizontal-stack':
         final children = card.maps('cards');
-        if (children.isEmpty) {
-          return 0;
-        }
-
         var tallest = 0.0;
 
         for (final child in children) {
@@ -112,21 +100,15 @@ class HeightPager extends StatelessWidget {
 
       case 'grid':
         final children = card.maps('cards');
-        if (children.isEmpty) {
-          return 0;
-        }
+        if (children.isEmpty) return 0;
 
         final columns = card.intOr('columns', 3).clamp(1, 4);
-
         var total = 0.0;
 
         for (var start = 0; start < children.length; start += columns) {
-          if (start > 0) {
-            total += Ns.gap;
-          }
+          if (start > 0) total += Ns.gap;
 
           var rowHeight = 0.0;
-
           final end = (start + columns).clamp(0, children.length);
 
           for (var i = start; i < end; i++) {
@@ -141,41 +123,82 @@ class HeightPager extends StatelessWidget {
         return total;
 
       default:
-        // Unknown/built-in cards keep a sensible normal card footprint.
         return card.numOr('height', 200);
     }
   }
 
-  List<PanelPage> _paginate(List<CardConfig> cards, double availableHeight) {
+  /// Keeps layouts that fit, but expands layouts that overflow or contain a
+  /// built-in panel. The resulting cards are then paginated in their original
+  /// order. This avoids placing a full-page WebView inside another layout.
+  List<CardConfig> _expandForPagination(
+    CardConfig card,
+    double availableHeight,
+  ) {
+    final resolved = resolveCard(card, panels: env.panels);
+
+    if (resolved.kind != ResolvedCardKind.layout) {
+      return [card];
+    }
+
+    final children = card.maps('cards');
+    if (children.isEmpty) return [card];
+
+    final hasPanel = _containsBuiltInPanel(card);
+    final overflows = _cardHeight(card, availableHeight) >
+        availableHeight + 0.5;
+
+    if (!hasPanel && !overflows) {
+      return [card];
+    }
+
+    // When a horizontal stack or grid cannot fit, its children become
+    // sequential pagination units instead of being clipped off-screen.
+    return [
+      for (final child in children)
+        ..._expandForPagination(child, availableHeight),
+    ];
+  }
+
+  List<PanelPage> _paginate(
+    List<CardConfig> cards,
+    double availableHeight,
+  ) {
     final result = <PanelPage>[];
     var current = <CardConfig>[];
     var used = 0.0;
 
+    void flushCurrent() {
+      if (current.isEmpty) return;
+
+      result.add(PanelPage(List<CardConfig>.from(current)));
+      current = <CardConfig>[];
+      used = 0.0;
+    }
+
     for (final card in cards) {
       final height = _cardHeight(card, availableHeight);
+      if (height <= 0) continue;
 
-      if (height <= 0) {
+      // A built-in panel must be alone on its page.
+      if (_isBuiltInPanel(card)) {
+        flushCurrent();
+        result.add(PanelPage([card]));
         continue;
       }
 
       final gap = current.isEmpty ? 0.0 : Ns.gap;
       final required = gap + height;
 
-      if (current.isNotEmpty && used + required > availableHeight + 0.5) {
-        result.add(PanelPage(List<CardConfig>.from(current)));
-
-        current = <CardConfig>[];
-        used = 0.0;
+      if (current.isNotEmpty &&
+          used + required > availableHeight + 0.5) {
+        flushCurrent();
       }
 
       current.add(card);
       used += (current.length == 1 ? 0.0 : Ns.gap) + height;
     }
 
-    if (current.isNotEmpty) {
-      result.add(PanelPage(List<CardConfig>.from(current)));
-    }
-
+    flushCurrent();
     return result;
   }
 
@@ -185,38 +208,46 @@ class HeightPager extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final outerHeight = constraints.maxHeight;
-
-          if (outerHeight <= 0) {
-            return const SizedBox.expand();
-          }
+          if (outerHeight <= 0) return const SizedBox.expand();
 
           final cards = _flattenCards();
+          if (cards.isEmpty) return const SizedBox.expand();
 
-          if (cards.isEmpty) {
-            return const SizedBox.expand();
-          }
+          var availableHeight =
+              PanelPager.contentHeight(outerHeight, multiplePages: true);
 
-          // First paginate with the space reserved for page indicators.
-          // If everything fits on one page, reclaim that space.
-          var splitPages = _paginate(
-            cards,
-            PanelPager.contentHeight(outerHeight, multiplePages: true),
-          );
+          var preparedCards = [
+            for (final card in cards)
+              ..._expandForPagination(card, availableHeight),
+          ];
 
+          var splitPages = _paginate(preparedCards, availableHeight);
+
+          // If only one page is needed, reclaim the space reserved for
+          // page indicators and calculate the layout again.
           if (splitPages.length == 1) {
-            splitPages = _paginate(
-              cards,
-              PanelPager.contentHeight(outerHeight, multiplePages: false),
-            );
+            availableHeight =
+                PanelPager.contentHeight(outerHeight, multiplePages: false);
+
+            preparedCards = [
+              for (final card in cards)
+                ..._expandForPagination(card, availableHeight),
+            ];
+
+            splitPages = _paginate(preparedCards, availableHeight);
           }
 
-          if (splitPages.isEmpty) {
-            return const SizedBox.expand();
-          }
+          if (splitPages.isEmpty) return const SizedBox.expand();
+
+          final deferredPages = <int>{
+            for (var i = 0; i < splitPages.length; i++)
+              if (splitPages[i].cards.any(_containsBuiltInPanel)) i,
+          };
 
           return PanelPager(
             jump: jump,
             onPage: onPage,
+            deferredPages: deferredPages,
             pages: [
               for (var i = 0; i < splitPages.length; i++)
                 _buildPage(
@@ -260,7 +291,9 @@ class HeightPager extends StatelessWidget {
     required bool animate,
   }) {
     return KeyedSubtree(
-      key: ValueKey('dashboard-card-${pageIndex}_$cardIndex-${cardType(card)}'),
+      key: ValueKey(
+        'dashboard-card-${pageIndex}_$cardIndex-${cardType(card)}',
+      ),
       child: Enter(
         index: cardIndex,
         animate: animate,

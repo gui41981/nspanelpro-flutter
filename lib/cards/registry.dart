@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../config/dashboard.dart';
 import '../config/resolution.dart';
+import '../ha/panels.dart';
 import '../ui/theme.dart';
 import 'alarm_card.dart';
 import 'button_card.dart';
@@ -12,6 +13,7 @@ import 'cover_card.dart';
 import 'env.dart';
 import 'light_card.dart';
 import 'media_card.dart';
+import 'panel_view.dart';
 import 'sensor_card.dart';
 import 'sensors_card.dart';
 import 'status_card.dart';
@@ -20,11 +22,8 @@ import 'weather_pro_card.dart';
 
 /// Resolve a Lovelace node and render it.
 ///
-/// The registry is intentionally only a renderer registry:
-///
-///   Lovelace config -> resolution -> widget
-///
-/// It does not infer rooms, devices, functions or light groups.
+/// Lovelace config -> resolution -> widget.
+/// Entities and device state remain managed by Home Assistant.
 Widget buildCard(CardConfig c, PanelEnv env) {
   final resolved = resolveCard(
     c,
@@ -39,15 +38,33 @@ Widget buildCard(CardConfig c, PanelEnv env) {
       return _buildLayout(resolved, env);
 
     case ResolvedCardKind.builtInPanel:
-      return BuiltInPanelPlaceholder(
-        panelId: resolved.panelId ?? '(unknown)',
-      );
+      return _buildBuiltInPanel(resolved, env);
 
     case ResolvedCardKind.unsupported:
       return UnsupportedCard(
         type: c['type']?.toString() ?? '(no type)',
       );
   }
+}
+
+Widget _buildBuiltInPanel(ResolvedCard resolved, PanelEnv env) {
+  final id = resolved.panelId;
+
+  if (id == null || env.panels == null) {
+    return const UnsupportedCard(type: 'Home Assistant panel unavailable');
+  }
+
+  final HaPanel? panel = env.panels![id];
+
+  if (panel == null) {
+    return UnsupportedCard(type: 'Home Assistant panel not found: $id');
+  }
+
+  return BuiltInPanelView(
+    key: ValueKey('ha-panel-${panel.id}'),
+    panel: panel,
+    settings: env.settings,
+  );
 }
 
 Widget _buildCustomCard(ResolvedCard resolved, PanelEnv env) {
@@ -104,10 +121,7 @@ Widget _buildCustomCard(ResolvedCard resolved, PanelEnv env) {
   }
 }
 
-
 /// Render a Lovelace layout.
-///
-/// Layouts are containers. They do not resolve entities or functions.
 Widget _buildLayout(ResolvedCard resolved, PanelEnv env) {
   final c = resolved.config;
 
@@ -141,44 +155,7 @@ Widget _buildLayout(ResolvedCard resolved, PanelEnv env) {
   }
 }
 
-/// Placeholder for an HA native panel.
-///
-/// Native HA panels are deliberately not reimplemented here. The next
-/// navigation step will replace this widget with the actual HA panel
-/// destination handling.
-class BuiltInPanelPlaceholder extends StatelessWidget {
-  const BuiltInPanelPlaceholder({
-    super.key,
-    required this.panelId,
-  });
-
-  final String panelId;
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-        decoration: BoxDecoration(
-          color: Ns.surface,
-          borderRadius: BorderRadius.circular(Ns.radius),
-          border: Border.all(
-            color: Ns.text.withValues(alpha: .5),
-          ),
-        ),
-        child: Text(
-          'HA panel: $panelId',
-          style: const TextStyle(
-            color: Ns.text,
-            fontSize: 14,
-            height: 1.4,
-          ),
-        ),
-      );
-}
-
 /// Lovelace's unsupported-card fallback.
-///
-/// Anything HA can put in a dashboard but this Flutter application cannot
-/// render is made visible instead of silently disappearing.
 class UnsupportedCard extends StatelessWidget {
   const UnsupportedCard({
     super.key,
@@ -208,7 +185,7 @@ class UnsupportedCard extends StatelessWidget {
       );
 }
 
-/// Lovelace's vertical-stack: cards one above the other with the panel gap.
+/// Lovelace's vertical-stack.
 class VStack extends StatelessWidget {
   const VStack({
     super.key,
@@ -230,9 +207,7 @@ class VStack extends StatelessWidget {
       );
 }
 
-/// Lovelace's horizontal-stack: equal columns. Each card keeps its own
-/// configured height, so give the children the same one or the row is as
-/// tall as the tallest and the rest sit at the top.
+/// Lovelace's horizontal-stack.
 class HStack extends StatelessWidget {
   const HStack({
     super.key,
@@ -253,8 +228,7 @@ class HStack extends StatelessWidget {
       );
 }
 
-/// Lovelace's grid card: `columns` across, wrapping. `square` is ignored;
-/// the cards have heights of their own.
+/// Lovelace's grid card.
 class GridStack extends StatelessWidget {
   const GridStack({
     super.key,
