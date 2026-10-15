@@ -11,12 +11,16 @@ class PanelPager extends StatefulWidget {
   const PanelPager({
     super.key,
     required this.pages,
+    this.initialPage = 0,
     this.jump,
     this.onPage,
     this.deferredPages = const <int>{},
   });
 
   final List<Widget> pages;
+
+  /// Physical page to show when the dashboard is first displayed.
+  final int initialPage;
 
   /// Page indices whose contents must only be mounted while active.
   ///
@@ -64,12 +68,30 @@ class _PanelPagerState extends State<PanelPager> {
   /// Invalidates pending post-frame activations after a newer page transition.
   int _activationGeneration = 0;
 
-  final _controller = PageController();
+  late final PageController _controller;
+
+  int _clampedInitialPage(PanelPager widget) {
+    if (widget.pages.isEmpty) return 0;
+    return widget.initialPage.clamp(0, widget.pages.length - 1);
+  }
 
   @override
   void initState() {
     super.initState();
+    _index = _clampedInitialPage(widget);
+    _activeDeferredIndex = widget.deferredPages.contains(_index)
+        ? null
+        : _index;
+    _controller = PageController(initialPage: _index);
     widget.jump?.addListener(_onJump);
+
+    // Synchronize the app/MQTT page state with the page actually displayed.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.pages.isNotEmpty) {
+        widget.onPage?.call(_index);
+        _settlePage();
+      }
+    });
   }
 
   @override
@@ -79,6 +101,27 @@ class _PanelPagerState extends State<PanelPager> {
     if (!identical(oldWidget.jump, widget.jump)) {
       oldWidget.jump?.removeListener(_onJump);
       widget.jump?.addListener(_onJump);
+    }
+
+    if (widget.pages.isNotEmpty &&
+        oldWidget.initialPage != widget.initialPage) {
+      final target = _clampedInitialPage(widget);
+      _activationGeneration++;
+      setState(() {
+        _index = target;
+        _activeDeferredIndex = widget.deferredPages.contains(target)
+            ? null
+            : target;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_controller.hasClients || widget.pages.isEmpty) {
+          return;
+        }
+        _controller.jumpToPage(_clampedInitialPage(widget));
+        widget.onPage?.call(_clampedInitialPage(widget));
+        _settlePage();
+      });
+      return;
     }
 
     if (widget.pages.isEmpty) {

@@ -5,9 +5,12 @@
 typedef CardConfig = Map<String, dynamic>;
 
 class PanelPage {
-  const PanelPage(this.cards);
+  const PanelPage(this.cards, {this.isStart = false});
 
   final List<CardConfig> cards;
+
+  /// True when this page is the one selected by simple-swipe-card.start.
+  final bool isStart;
 }
 
 /// `custom:nspanel-light-card` -> `nspanel-light-card`.
@@ -71,8 +74,17 @@ List<PanelPage> pagesFromLovelace(Map<String, dynamic> config) {
     }
 
     if (swipe != null) {
-      for (final child in swipe.maps('cards')) {
-        pages.add(PanelPage(_flattenPageRoot(child)));
+      final children = swipe.maps('cards');
+      if (children.isNotEmpty) {
+        // simple-swipe-card.start is 1-based.
+        final configuredStart = swipe.intOr('start', 1);
+        final startIndex = (configuredStart - 1).clamp(0, children.length - 1);
+
+        for (var i = 0; i < children.length; i++) {
+          pages.add(
+            PanelPage(_flattenPageRoot(children[i]), isStart: i == startIndex),
+          );
+        }
       }
     } else if (cards.isNotEmpty) {
       pages.add(PanelPage(cards.expand(_flattenPageRoot).toList()));
@@ -113,9 +125,8 @@ void _attachEmbeddedLights(List<PanelPage> pages) {
   // quelle que soit leur position dans les pages générées.
   for (var i = 0; i < pages.length; i++) {
     pages[i] = PanelPage([
-      for (final card in pages[i].cards)
-        _attachLightsToWeather(card, lights),
-    ]);
+      for (final card in pages[i].cards) _attachLightsToWeather(card, lights),
+    ], isStart: pages[i].isStart);
   }
 }
 
@@ -130,10 +141,7 @@ void _collectLightCards(CardConfig card, List<CardConfig> lights) {
   }
 }
 
-CardConfig _attachLightsToWeather(
-  CardConfig card,
-  List<CardConfig> lights,
-) {
+CardConfig _attachLightsToWeather(CardConfig card, List<CardConfig> lights) {
   final copy = Map<String, dynamic>.from(card);
 
   if (cardType(copy) == 'nspanel-weather-pro-card' &&
@@ -149,10 +157,7 @@ CardConfig _attachLightsToWeather(
     copy['cards'] = [
       for (final child in children)
         if (child is Map)
-          _attachLightsToWeather(
-            child.cast<String, dynamic>(),
-            lights,
-          )
+          _attachLightsToWeather(child.cast<String, dynamic>(), lights)
         else
           child,
     ];
@@ -225,8 +230,9 @@ CardConfig? _withoutScreensaver(CardConfig card) {
         continue;
       }
 
-      final cleanedChild =
-          _withoutScreensaver(Map<String, dynamic>.from(child));
+      final cleanedChild = _withoutScreensaver(
+        Map<String, dynamic>.from(child),
+      );
 
       if (cleanedChild != null) {
         filtered.add(cleanedChild);

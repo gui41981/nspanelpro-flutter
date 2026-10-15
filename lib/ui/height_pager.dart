@@ -30,9 +30,9 @@ class HeightPager extends StatelessWidget {
   final bool Function(int index)? animatePage;
 
   List<CardConfig> _flattenCards() => [
-        for (final page in pages)
-          for (final card in page.cards) card,
-      ];
+    for (final page in pages)
+      for (final card in page.cards) card,
+  ];
 
   bool _isBuiltInPanel(CardConfig card) =>
       resolveCard(card, panels: env.panels).kind ==
@@ -144,8 +144,8 @@ class HeightPager extends StatelessWidget {
     if (children.isEmpty) return [card];
 
     final hasPanel = _containsBuiltInPanel(card);
-    final overflows = _cardHeight(card, availableHeight) >
-        availableHeight + 0.5;
+    final overflows =
+        _cardHeight(card, availableHeight) > availableHeight + 0.5;
 
     if (!hasPanel && !overflows) {
       return [card];
@@ -159,10 +159,33 @@ class HeightPager extends StatelessWidget {
     ];
   }
 
-  List<PanelPage> _paginate(
-    List<CardConfig> cards,
-    double availableHeight,
-  ) {
+  int _initialPhysicalPage(List<PanelPage> splitPages, double availableHeight) {
+    final sourceIndex = pages.indexWhere((page) => page.isStart);
+    if (sourceIndex < 0) return 0;
+
+    // Expand the selected YAML page exactly as normal pagination does.
+    // This also handles a selected layout that needs multiple physical pages.
+    final candidates = <CardConfig>[
+      for (final card in pages[sourceIndex].cards)
+        ..._expandForPagination(card, availableHeight),
+    ];
+
+    final target = candidates.cast<CardConfig?>().firstWhere(
+      (card) => card != null && _cardHeight(card, availableHeight) > 0,
+      orElse: () => null,
+    );
+    if (target == null) return 0;
+
+    for (var i = 0; i < splitPages.length; i++) {
+      if (splitPages[i].cards.any((card) => identical(card, target))) {
+        return i;
+      }
+    }
+
+    return 0;
+  }
+
+  List<PanelPage> _paginate(List<CardConfig> cards, double availableHeight) {
     final result = <PanelPage>[];
     var current = <CardConfig>[];
     var used = 0.0;
@@ -189,8 +212,7 @@ class HeightPager extends StatelessWidget {
       final gap = current.isEmpty ? 0.0 : Ns.gap;
       final required = gap + height;
 
-      if (current.isNotEmpty &&
-          used + required > availableHeight + 0.5) {
+      if (current.isNotEmpty && used + required > availableHeight + 0.5) {
         flushCurrent();
       }
 
@@ -213,8 +235,10 @@ class HeightPager extends StatelessWidget {
           final cards = _flattenCards();
           if (cards.isEmpty) return const SizedBox.expand();
 
-          var availableHeight =
-              PanelPager.contentHeight(outerHeight, multiplePages: true);
+          var availableHeight = PanelPager.contentHeight(
+            outerHeight,
+            multiplePages: true,
+          );
 
           var preparedCards = [
             for (final card in cards)
@@ -226,8 +250,10 @@ class HeightPager extends StatelessWidget {
           // If only one page is needed, reclaim the space reserved for
           // page indicators and calculate the layout again.
           if (splitPages.length == 1) {
-            availableHeight =
-                PanelPager.contentHeight(outerHeight, multiplePages: false);
+            availableHeight = PanelPager.contentHeight(
+              outerHeight,
+              multiplePages: false,
+            );
 
             preparedCards = [
               for (final card in cards)
@@ -244,7 +270,10 @@ class HeightPager extends StatelessWidget {
               if (splitPages[i].cards.any(_containsBuiltInPanel)) i,
           };
 
+          final initialPage = _initialPhysicalPage(splitPages, availableHeight);
+
           return PanelPager(
+            initialPage: initialPage,
             jump: jump,
             onPage: onPage,
             deferredPages: deferredPages,
@@ -291,9 +320,7 @@ class HeightPager extends StatelessWidget {
     required bool animate,
   }) {
     return KeyedSubtree(
-      key: ValueKey(
-        'dashboard-card-${pageIndex}_$cardIndex-${cardType(card)}',
-      ),
+      key: ValueKey('dashboard-card-${pageIndex}_$cardIndex-${cardType(card)}'),
       child: Enter(
         index: cardIndex,
         animate: animate,
