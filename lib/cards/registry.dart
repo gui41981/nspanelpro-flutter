@@ -6,6 +6,7 @@ import '../ha/panels.dart';
 import '../ui/theme.dart';
 import 'alarm_card.dart';
 import 'button_card.dart';
+import 'camera_card.dart';
 import 'switch_card.dart';
 import 'climate_card.dart';
 import 'clock_card.dart';
@@ -25,6 +26,10 @@ import 'weather_pro_card.dart';
 /// Lovelace config -> resolution -> widget.
 /// Entities and device state remain managed by Home Assistant.
 Widget buildCard(CardConfig c, PanelEnv env) {
+  if (CameraCard.supports(c)) {
+    return CameraCard(config: c, env: env);
+  }
+
   final resolved = resolveCard(
     c,
     panels: env.panels,
