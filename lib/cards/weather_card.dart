@@ -41,43 +41,70 @@ class _WeatherCardState extends State<WeatherCard> {
 
   List<dynamic>? _forecast;
   Future<void> Function()? _unsub;
-  bool _subscribing = false;
+  int? _subscribedGeneration;
+  int? _subscribingGeneration;
 
   @override
   void initState() {
     super.initState();
-    widget.env.conn.status.addListener(_maybeSubscribe);
+    widget.env.conn.generationListenable.addListener(_onGenerationChanged);
     _maybeSubscribe();
   }
 
   @override
   void dispose() {
-    widget.env.conn.status.removeListener(_maybeSubscribe);
+    widget.env.conn.generationListenable.removeListener(_onGenerationChanged);
     _unsub?.call();
     super.dispose();
   }
 
+  void _onGenerationChanged() {
+    // The old socket has already discarded its subscriptions.
+    _unsub = null;
+    _subscribedGeneration = null;
+    _maybeSubscribe();
+  }
+
   Future<void> _maybeSubscribe() async {
     if (!c.boolOr('show_forecast', true)) return;
-    if (_unsub != null || _subscribing) return;
-    if (widget.env.conn.status.value != HaStatus.online) {
-      _unsub = null;
+
+    final conn = widget.env.conn;
+    final generation = conn.generation;
+
+    // Wait for the initial state seed and state_changed subscription.
+    if (conn.status.value != HaStatus.online || generation == 0) return;
+
+    if (_subscribedGeneration == generation ||
+        _subscribingGeneration == generation) {
       return;
     }
-    _subscribing = true;
+
+    _subscribingGeneration = generation;
     try {
-      _unsub = await widget.env.conn.subscribe({
+      final unsubscribe = await conn.subscribe({
         'type': 'weather/subscribe_forecast',
         'forecast_type': c.str('forecast_type') ?? 'daily',
         'entity_id': entity,
       }, (ev) {
-        if (!mounted) return;
+        if (!mounted || conn.generation != generation) return;
         setState(() => _forecast = (ev as Map?)?['forecast'] as List? ?? const []);
       });
+
+      if (!mounted ||
+          conn.generation != generation ||
+          conn.status.value != HaStatus.online) {
+        await unsubscribe();
+        return;
+      }
+
+      _unsub = unsubscribe;
+      _subscribedGeneration = generation;
     } catch (_) {
       // Older core: the attribute fallback below covers it.
     } finally {
-      _subscribing = false;
+      if (_subscribingGeneration == generation) {
+        _subscribingGeneration = null;
+      }
     }
   }
 
