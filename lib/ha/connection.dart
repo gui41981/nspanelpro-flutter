@@ -31,6 +31,10 @@ class HaConnection {
 
   final ValueNotifier<HaStatus> status = ValueNotifier(HaStatus.connecting);
 
+  /// Changes only after authentication, state seeding, and the state_changed
+  /// subscription have all completed successfully.
+  final ValueNotifier<int> generationListenable = ValueNotifier(0);
+
   /// Called after every successful auth + state seed, so the app can
   /// (re)load the dashboard config on each reconnect.
   void Function()? onReady;
@@ -75,6 +79,8 @@ class HaConnection {
     await _t?.close();
 
     _failPending();
+    status.dispose();
+    generationListenable.dispose();
   }
 
   Future<void> _connect() async {
@@ -299,6 +305,7 @@ class HaConnection {
       );
 
       generation++;
+      generationListenable.value = generation;
       onReady?.call();
     } catch (e) {
       debugPrint('ha: initial state seed failed: $e');
