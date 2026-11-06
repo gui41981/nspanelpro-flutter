@@ -148,7 +148,8 @@ class _WeatherProCardState extends State<WeatherProCard> {
   List<dynamic>? _forecast;
 
   Future<void> Function()? _unsub;
-  bool _subscribing = false;
+  int? _subscribedGeneration;
+  int? _subscribingGeneration;
 
   final Map<String, ImageProvider> _imageProviders = <String, ImageProvider>{};
 
@@ -156,16 +157,24 @@ class _WeatherProCardState extends State<WeatherProCard> {
   void initState() {
     super.initState();
 
-    widget.env.conn.status.addListener(_maybeSubscribe);
+    widget.env.conn.generationListenable.addListener(_onGenerationChanged);
     _maybeSubscribe();
   }
 
   @override
   void dispose() {
-    widget.env.conn.status.removeListener(_maybeSubscribe);
+    widget.env.conn.generationListenable.removeListener(_onGenerationChanged);
     _unsub?.call();
     _imageProviders.clear();
     super.dispose();
+  }
+
+  void _onGenerationChanged() {
+    // Subscriptions belong to the old socket and are already gone. Do not
+    // send an unsubscribe on the newly established connection.
+    _unsub = null;
+    _subscribedGeneration = null;
+    _maybeSubscribe();
   }
 
   Future<void> _maybeSubscribe() async {
@@ -173,25 +182,30 @@ class _WeatherProCardState extends State<WeatherProCard> {
       return;
     }
 
-    if (_unsub != null || _subscribing) {
+    final conn = widget.env.conn;
+    final generation = conn.generation;
+
+    // Wait until _seed has completed, not merely until auth_ok arrives.
+    if (conn.status.value != HaStatus.online || generation == 0) {
       return;
     }
 
-    if (widget.env.conn.status.value != HaStatus.online) {
+    if (_subscribedGeneration == generation ||
+        _subscribingGeneration == generation) {
       return;
     }
 
-    _subscribing = true;
+    _subscribingGeneration = generation;
 
     try {
-      _unsub = await widget.env.conn.subscribe(
+      final unsubscribe = await conn.subscribe(
         {
           'type': 'weather/subscribe_forecast',
           'forecast_type': c.str('forecast_type') ?? 'daily',
           'entity_id': entity,
         },
         (ev) {
-          if (!mounted) {
+          if (!mounted || conn.generation != generation) {
             return;
           }
 
@@ -202,10 +216,23 @@ class _WeatherProCardState extends State<WeatherProCard> {
           });
         },
       );
+
+      // The socket may have changed while the subscription was pending.
+      if (!mounted ||
+          conn.generation != generation ||
+          conn.status.value != HaStatus.online) {
+        await unsubscribe();
+        return;
+      }
+
+      _unsub = unsubscribe;
+      _subscribedGeneration = generation;
     } catch (_) {
       // Forecast subscription is optional.
     } finally {
-      _subscribing = false;
+      if (_subscribingGeneration == generation) {
+        _subscribingGeneration = null;
+      }
     }
   }
 
