@@ -61,9 +61,14 @@ class _CameraLiveViewState extends State<CameraLiveView> {
   @override
   void didUpdateWidget(covariant CameraLiveView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.env.conn != widget.env.conn) {
+      oldWidget.env.conn.status.removeListener(_onConnectionStatus);
+      widget.env.conn.status.addListener(_onConnectionStatus);
+    }
     if (oldWidget.entityId != widget.entityId ||
         oldWidget.env.settings.url != widget.env.settings.url ||
-        oldWidget.env.conn.generation != widget.env.conn.generation) {
+        oldWidget.env.settings.token != widget.env.settings.token ||
+        oldWidget.env.conn != widget.env.conn) {
       _openStream();
     }
   }
