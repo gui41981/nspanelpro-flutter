@@ -34,7 +34,28 @@ class _CameraLiveViewState extends State<CameraLiveView> {
   @override
   void initState() {
     super.initState();
+    widget.env.conn.status.addListener(_onConnectionStatus);
     _openStream();
+  }
+
+  void _onConnectionStatus() {
+    if (!mounted) return;
+    if (widget.env.conn.status.value == HaStatus.online) {
+      if (_player == null || _error != null) _openStream();
+      return;
+    }
+
+    if (widget.env.conn.status.value == HaStatus.offline ||
+        widget.env.conn.status.value == HaStatus.authFailed) {
+      _generation++;
+      final previous = _player;
+      _player = null;
+      if (previous != null) unawaited(previous.dispose());
+      setState(() {
+        _loading = false;
+        _error = 'Connexion Home Assistant indisponible.';
+      });
+    }
   }
 
   @override
@@ -58,6 +79,13 @@ class _CameraLiveViewState extends State<CameraLiveView> {
 
   Future<void> _openStream() async {
     final generation = ++_generation;
+    if (!widget.env.conn.isOnline) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+      return;
+    }
     final previous = _player;
     _player = null;
     if (previous != null) {
@@ -120,6 +148,7 @@ class _CameraLiveViewState extends State<CameraLiveView> {
 
   @override
   void dispose() {
+    widget.env.conn.status.removeListener(_onConnectionStatus);
     _generation++;
     final player = _player;
     if (player != null) unawaited(player.dispose());
