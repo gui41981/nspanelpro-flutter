@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import '../ha/connection.dart';
 import 'env.dart';
 
 /// Native HLS camera renderer. The stream URL is created by Home Assistant
