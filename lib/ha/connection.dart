@@ -358,7 +358,7 @@ class HaConnection {
   /// Ask Home Assistant to create an HLS stream for a camera entity.
   ///
   /// The returned path is a short-lived, tokenized URL such as
-  /// /api/hls/<token>/master_playlist.m3u8. Resolve it against Settings.base
+  /// `/api/hls/<token>/master_playlist.m3u8`. Resolve it against Settings.base
   /// before passing it to the native video player.
   Future<String> fetchCameraStream(String entityId) async {
     if (!entityId.startsWith('camera.')) {
