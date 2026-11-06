@@ -79,8 +79,6 @@ class HaConnection {
     await _t?.close();
 
     _failPending();
-    status.dispose();
-    generationListenable.dispose();
   }
 
   Future<void> _connect() async {
