@@ -355,6 +355,30 @@ class HaConnection {
     }
   }
 
+  /// Ask Home Assistant to create an HLS stream for a camera entity.
+  ///
+  /// The returned path is a short-lived, tokenized URL such as
+  /// /api/hls/<token>/master_playlist.m3u8. Resolve it against Settings.base
+  /// before passing it to the native video player.
+  Future<String> fetchCameraStream(String entityId) async {
+    if (!entityId.startsWith('camera.')) {
+      throw ArgumentError.value(entityId, 'entityId', 'Expected a camera entity');
+    }
+
+    final result = await send({
+      'type': 'camera/stream',
+      'entity_id': entityId,
+      'format': 'hls',
+    });
+
+    if (result is Map) {
+      final url = result['url'];
+      if (url is String && url.isNotEmpty) return url;
+    }
+
+    throw StateError('Home Assistant did not return an HLS stream URL for $entityId');
+  }
+
   Future<Map<String, dynamic>> fetchLovelace(String? urlPath) async {
     final result = await send({
       'type': 'lovelace/config',
