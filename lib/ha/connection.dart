@@ -187,8 +187,10 @@ class HaConnection {
       case 'auth_ok':
         _authed = true;
         _backoff = const Duration(seconds: 1);
-        status.value = HaStatus.online;
 
+        // Keep the connection in "connecting" until the initial states and
+        // state_changed subscription are ready. Consumers must not subscribe
+        // to live data against a socket whose seed is still in progress.
         _seed();
 
       case 'result':
@@ -305,6 +307,7 @@ class HaConnection {
       );
 
       generation++;
+      status.value = HaStatus.online;
       generationListenable.value = generation;
       onReady?.call();
     } catch (e) {
