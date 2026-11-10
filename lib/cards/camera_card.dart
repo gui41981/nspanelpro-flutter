@@ -8,6 +8,7 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 
 import '../config/dashboard.dart';
 import '../ha/states.dart';
+import 'camera_live_view.dart';
 import '../ui/page_scope.dart';
 import '../ui/theme.dart';
 import 'env.dart';
@@ -45,6 +46,7 @@ class _CameraCardState extends State<CameraCard> {
 
   PageScope? _scope;
   Listenable? _changes;
+  bool _active = true;
   Uint8List? _frame;
   Timer? _next;
   bool _fetching = false;
@@ -54,7 +56,7 @@ class _CameraCardState extends State<CameraCard> {
 
   static final _http = HttpClient()..connectionTimeout = const Duration(seconds: 6);
 
-  bool get _active => _scope?.active ?? true;
+  bool get _live => c.str('camera_view')?.toLowerCase() == 'live';
 
   Duration get _interval =>
       Duration(milliseconds: (c.numOr('interval', 1).clamp(0.2, 3600) * 1000).round());
@@ -64,25 +66,38 @@ class _CameraCardState extends State<CameraCard> {
     super.didChangeDependencies();
     final scope = PageScope.maybeOf(context);
     if (!identical(scope, _scope)) {
-      _changes?.removeListener(_sync);
+      _changes?.removeListener(_onScopeChanged);
       _scope = scope;
+      _active = scope?.active ?? true;
       _changes = scope?.changes;
-      _changes?.addListener(_sync);
+      _changes?.addListener(_onScopeChanged);
     }
     _sync();
   }
 
   @override
   void dispose() {
-    _changes?.removeListener(_sync);
+    _changes?.removeListener(_onScopeChanged);
     _next?.cancel();
     super.dispose();
   }
 
   /// On screen: fetch. Off screen: stop, and keep the last still so the page
   /// does not come back empty.
+  void _onScopeChanged() {
+    if (!mounted) return;
+    final active = _scope?.active ?? true;
+    if (active != _active) setState(() => _active = active);
+    _sync();
+  }
+
   void _sync() {
     if (!mounted) return;
+    if (_live) {
+      _next?.cancel();
+      _next = null;
+      return;
+    }
     if (_active) {
       if (!_fetching && _next == null) _poll();
     } else {
@@ -154,6 +169,34 @@ class _CameraCardState extends State<CameraCard> {
   @override
   Widget build(BuildContext context) {
     final height = c.numOr('height', 300);
+    if (_live) {
+      final rawPtz = c['ptz'];
+      final ptz = rawPtz is Map
+          ? rawPtz.cast<String, dynamic>()
+          : const <String, dynamic>{};
+      if (_entity.isEmpty) {
+        return SizedBox(
+          height: height,
+          child: const Center(child: Text('No camera entity configured')),
+        );
+      }
+      return SizedBox(
+        height: height,
+        child: _active
+            ? CameraLiveView(
+                key: ValueKey('camera-live-$_entity'),
+                entityId: _entity,
+                env: widget.env,
+                ptz: ptz,
+              )
+            : const ColoredBox(
+                color: Colors.black,
+                child: Center(
+                  child: Text('Camera paused', style: TextStyle(color: Colors.white70)),
+                ),
+              ),
+      );
+    }
     return ValueListenableBuilder<HaState?>(
       valueListenable: widget.env.states.listen(_entity),
       builder: (context, s, _) {
