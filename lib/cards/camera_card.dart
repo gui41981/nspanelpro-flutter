@@ -76,6 +76,19 @@ class _CameraCardState extends State<CameraCard> {
   }
 
   @override
+  void didUpdateWidget(covariant CameraCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.config.toString() != widget.config.toString()) {
+      _next?.cancel();
+      _next = null;
+      _frame = null;
+      _fails = 0;
+      _logged = false;
+      _sync();
+    }
+  }
+
+  @override
   void dispose() {
     _changes?.removeListener(_onScopeChanged);
     _next?.cancel();
@@ -125,7 +138,7 @@ class _CameraCardState extends State<CameraCard> {
   }
 
   Future<void> _poll() async {
-    if (!mounted || !_active || _fetching || _entity.isEmpty) return;
+    if (!mounted || !_active || _fetching || _entity.isEmpty || _live) return;
     _fetching = true;
     final started = DateTime.now();
     Uint8List? bytes;
