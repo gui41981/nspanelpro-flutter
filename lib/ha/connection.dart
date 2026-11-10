@@ -229,6 +229,27 @@ class HaConnection {
     }
   }
 
+  /// Ask Home Assistant to create an HLS stream for a camera entity.
+  /// The returned URL is short-lived and already contains its stream token.
+  Future<String> fetchCameraStream(String entityId) async {
+    if (!entityId.startsWith('camera.')) {
+      throw ArgumentError.value(entityId, 'entityId', 'Expected a camera entity');
+    }
+
+    final result = await send({
+      'type': 'camera/stream',
+      'entity_id': entityId,
+      'format': 'hls',
+    });
+
+    if (result is Map) {
+      final url = result['url'];
+      if (url is String && url.isNotEmpty) return url;
+    }
+
+    throw StateError('Home Assistant did not return an HLS stream URL for $entityId');
+  }
+
   Future<Map<String, dynamic>> fetchLovelace(String? urlPath) async {
     final r = await send({
       'type': 'lovelace/config',
