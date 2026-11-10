@@ -18,6 +18,47 @@ final _png = base64Decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=');
 
 void main() {
+  testWidgets('a live camera does not create a decoder while its page is hidden', (tester) async {
+    final fake = FakeHa({});
+    final states = HaStates();
+    final conn = HaConnection(
+      transportFactory: () async => fake,
+      token: 'good',
+      states: states,
+    );
+    final shown = ValueNotifier<int>(0);
+    final awake = ValueNotifier<bool>(true);
+    final env = PanelEnv(
+      states: states,
+      conn: conn,
+      settings: Settings(url: 'http://x', token: 't'),
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PageScope(
+          index: 2,
+          shown: shown,
+          awake: awake,
+          child: CameraCard(
+            config: {
+              'type': 'custom:nspanel-camera-card',
+              'entity': 'camera.bedroom_fluent',
+              'camera_view': 'live',
+            },
+            env: env,
+          ),
+        ),
+      ),
+    ));
+
+    expect(find.text('Camera paused'), findsOneWidget);
+    expect(find.byType(CameraLiveView), findsNothing);
+
+    await tester.pumpWidget(const SizedBox());
+    await conn.dispose();
+  });
+
   testWidgets('it only asks for pictures while its page is showing and the panel is awake', (tester) async {
     final fake = FakeHa({
       'camera.door': st('camera.door', 'idle', {'friendly_name': 'Front door'}),
