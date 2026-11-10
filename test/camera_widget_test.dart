@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nspanel_app/cards/camera_card.dart';
+import 'package:nspanel_app/cards/camera_live_view.dart';
 import 'package:nspanel_app/cards/env.dart';
 import 'package:nspanel_app/config/settings.dart';
 import 'package:nspanel_app/ha/connection.dart';
