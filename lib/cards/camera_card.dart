@@ -68,7 +68,10 @@ class CameraCard extends StatefulWidget {
 }
 
 class _CameraCardState extends State<CameraCard> {
-  late final WebViewController _controller;
+  WebViewController? _controller;
+
+  WebViewController get _webController =>
+      _controller ??= WebViewController();
 
   int _generation = 0;
   int _progress = 0;
@@ -144,7 +147,6 @@ class _CameraCardState extends State<CameraCard> {
   @override
   void initState() {
     super.initState();
-    _controller = WebViewController();
     if (!_isNativeLive) _loadSource();
   }
 
@@ -182,13 +184,14 @@ class _CameraCardState extends State<CameraCard> {
     }
 
     try {
-      await _controller.setJavaScriptMode(JavaScriptMode.disabled);
+      final controller = _webController;
+      await controller.setJavaScriptMode(JavaScriptMode.disabled);
       if (!_isCurrent(generation)) return;
 
-      await _controller.setBackgroundColor(Colors.black);
+      await controller.setBackgroundColor(Colors.black);
       if (!_isCurrent(generation)) return;
 
-      await _controller.setNavigationDelegate(
+      await controller.setNavigationDelegate(
         NavigationDelegate(
           onProgress: (progress) {
             if (!_isCurrent(generation)) return;
@@ -249,7 +252,7 @@ class _CameraCardState extends State<CameraCard> {
           ? {'Authorization': 'Bearer $token'}
           : <String, String>{};
 
-      await _controller.loadRequest(uri, headers: headers);
+      await controller.loadRequest(uri, headers: headers);
     } catch (error) {
       if (!_isCurrent(generation)) return;
 
@@ -295,7 +298,7 @@ class _CameraCardState extends State<CameraCard> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          if (_hasSource) WebViewWidget(controller: _controller),
+          if (_hasSource) WebViewWidget(controller: _webController),
           if (_progress < 100 && _error == null)
             Positioned(
               top: 0,
