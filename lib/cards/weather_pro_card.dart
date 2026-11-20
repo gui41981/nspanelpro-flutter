@@ -137,7 +137,8 @@ class WeatherProCard extends StatefulWidget {
   State<WeatherProCard> createState() => _WeatherProCardState();
 }
 
-class _WeatherProCardState extends State<WeatherProCard> {
+class _WeatherProCardState extends State<WeatherProCard>
+    with WidgetsBindingObserver {
   CardConfig get c => widget.config;
 
   int _buildCount = 0;
@@ -150,6 +151,10 @@ class _WeatherProCardState extends State<WeatherProCard> {
   Future<void> Function()? _unsub;
   int? _subscribedGeneration;
   int? _subscribingGeneration;
+  bool _disposed = false;
+  bool _fetching = false;
+  bool _refreshPending = false;
+  Timer? _dailyRefresh;
 
   final Map<String, ImageProvider> _imageProviders = <String, ImageProvider>{};
 
@@ -157,13 +162,20 @@ class _WeatherProCardState extends State<WeatherProCard> {
   void initState() {
     super.initState();
 
+    WidgetsBinding.instance.addObserver(this);
     widget.env.conn.generationListenable.addListener(_onGenerationChanged);
-    _maybeSubscribe();
+    widget.env.conn.status.addListener(_onConnectionStatus);
+    _onConnectionStatus();
+    _armDailyRefresh();
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
     widget.env.conn.generationListenable.removeListener(_onGenerationChanged);
+    widget.env.conn.status.removeListener(_onConnectionStatus);
+    _dailyRefresh?.cancel();
     _unsub?.call();
     _imageProviders.clear();
     super.dispose();
@@ -174,7 +186,94 @@ class _WeatherProCardState extends State<WeatherProCard> {
     // send an unsubscribe on the newly established connection.
     _unsub = null;
     _subscribedGeneration = null;
-    _maybeSubscribe();
+    _onConnectionStatus();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted && !_disposed) {
+      // Android may defer timers while asleep: recalculate the local calendar
+      // and fetch the current five-day forecast immediately on resume.
+      setState(() {});
+      _refreshForecast();
+      _armDailyRefresh();
+    }
+  }
+
+  void _onConnectionStatus() {
+    if (_disposed) return;
+    if (widget.env.conn.status.value == HaStatus.online) {
+      _maybeSubscribe();
+      _fetchForecast();
+    } else {
+      // The old subscription is invalid after a websocket disconnect.
+      _unsub = null;
+    }
+  }
+
+  /// Recalculate and fetch the forecast shortly after local midnight.
+  /// This runs even when the weather condition has not changed.
+  void _armDailyRefresh() {
+    _dailyRefresh?.cancel();
+    if (!c.boolOr('show_forecast', true) || _disposed) return;
+
+    final now = DateTime.now();
+    final tomorrow = DateTime(now.year, now.month, now.day + 1);
+    final delay = tomorrow.difference(now) + const Duration(seconds: 10);
+    _dailyRefresh = Timer(delay, () {
+      if (!mounted || _disposed) return;
+      setState(() {});
+      _refreshForecast();
+      _armDailyRefresh();
+    });
+  }
+
+  Future<void> _refreshForecast() => _fetchForecast();
+
+  /// Explicitly request a fresh HA forecast: a subscription alone does not
+  /// guarantee a new calendar payload when the weather state stays unchanged.
+  Future<void> _fetchForecast() async {
+    if (_disposed ||
+        !c.boolOr('show_forecast', true) ||
+        widget.env.conn.status.value != HaStatus.online) {
+      return;
+    }
+    if (_fetching) {
+      _refreshPending = true;
+      return;
+    }
+
+    _fetching = true;
+    try {
+      final result = await widget.env.conn.send({
+        'type': 'call_service',
+        'domain': 'weather',
+        'service': 'get_forecasts',
+        'target': {'entity_id': entity},
+        'service_data': {
+          'type': c.str('forecast_type') ?? 'daily',
+        },
+        'return_response': true,
+      });
+      if (!mounted || result is! Map) return;
+      final response = result['response'];
+      if (response is! Map) return;
+      final weather = response[entity];
+      if (weather is! Map) return;
+      final forecast = weather['forecast'];
+      if (forecast is List) {
+        setState(() => _forecast = forecast);
+      }
+    } catch (e) {
+      // Retain the last valid forecast if HA is temporarily unavailable.
+      debugPrint('weather forecast refresh failed: $e');
+    } finally {
+      _fetching = false;
+      if (_refreshPending && !_disposed) {
+        _refreshPending = false;
+        scheduleMicrotask(_fetchForecast);
+      }
+    }
   }
 
   Future<void> _maybeSubscribe() async {
@@ -423,7 +522,28 @@ class _WeatherProCardState extends State<WeatherProCard> {
     final source =
         _forecast ?? (s?.attributes['forecast'] as List?) ?? const [];
 
-    return source.take(5).toList();
+    // The page shows the next five calendar days, starting tomorrow. Drop
+    // today's entry and any stale dates left at the front by the integration.
+    final now = DateTime.now();
+    final tomorrow = DateTime(now.year, now.month, now.day + 1);
+    final afterFifthDay = tomorrow.add(const Duration(days: 5));
+    final upcoming = source.where((entry) {
+      if (entry is! Map) return false;
+      final parsed = DateTime.tryParse(
+        entry['datetime']?.toString() ?? '',
+      );
+      if (parsed == null) return false;
+      final local = parsed.toLocal();
+      final day = DateTime(local.year, local.month, local.day);
+      return !day.isBefore(tomorrow) && day.isBefore(afterFifthDay);
+    }).toList();
+
+    upcoming.sort((a, b) {
+      final aDate = DateTime.tryParse(a['datetime']?.toString() ?? '')!;
+      final bDate = DateTime.tryParse(b['datetime']?.toString() ?? '')!;
+      return aDate.compareTo(bDate);
+    });
+    return upcoming.take(5).toList();
   }
 
   String _location(HaState? s) {
