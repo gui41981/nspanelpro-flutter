@@ -50,8 +50,26 @@ class _Btn {
 
 class _ButtonCardState extends State<ButtonCard> {
   CardConfig get c => widget.config;
-  late final List<_Btn> _btns = _items().map(_Btn.new).toList();
+  late List<_Btn> _btns;
   final _timers = <Timer>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _btns = _items().map(_Btn.new).toList();
+  }
+
+  @override
+  void didUpdateWidget(covariant ButtonCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.config, widget.config)) {
+      for (final timer in _timers) {
+        timer.cancel();
+      }
+      _timers.clear();
+      _btns = _items().map(_Btn.new).toList();
+    }
+  }
 
   List<CardConfig> _items() {
     final list = c['buttons'] is List && c.listOr('buttons').isNotEmpty
