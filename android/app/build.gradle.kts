@@ -35,7 +35,9 @@ android {
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = 24   // the NSPanel Pro is Android 8.1 (API 27)
         ndk {
-            abiFilters += listOf("arm64-v8a")
+            // NSPanel Pro 86 and 120: ARM64 only.
+            abiFilters.clear()
+            abiFilters.add("arm64-v8a")
         }
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
