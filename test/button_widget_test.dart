@@ -129,7 +129,8 @@ void main() {
     expect(find.text('First'), findsNothing);
     expect(find.text('Second'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
-    unawaited(conn.dispose());
+    await pumpEventQueue();
+    await tester.runAsync(conn.dispose);
   });
 
 }
