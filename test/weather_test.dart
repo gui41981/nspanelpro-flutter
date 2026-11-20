@@ -250,7 +250,11 @@ void main() {
         secondReady.complete();
       }
     };
-    await first.close();
+    // StreamController.close waits for onDone. In a widget test, let the
+    // fake-async event loop deliver onDone before awaiting that future.
+    final closingFirst = first.close();
+    await tester.pump();
+    await closingFirst;
     await tester.pump(const Duration(seconds: 2));
     await secondReady.future.timeout(const Duration(seconds: 3));
     await tester.pump();
