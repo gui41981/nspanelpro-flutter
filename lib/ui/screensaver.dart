@@ -283,23 +283,23 @@ class _FrostedClock extends StatelessWidget {
         children: [
           if (time != null)
             Text(
-            time!,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: size,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -2.5 * k,
-              height: 1,
-              fontFeatures: Ns.tabular,
-              shadows: const [
-                Shadow(
-                  offset: Offset(0, 1),
-                  blurRadius: 6,
-                  color: Color(0x80000000),
-                ),
-              ],
+              time!,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: size,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -2.5 * k,
+                height: 1,
+                fontFeatures: Ns.tabular,
+                shadows: const [
+                  Shadow(
+                    offset: Offset(0, 1),
+                    blurRadius: 6,
+                    color: Color(0x80000000),
+                  ),
+                ],
+              ),
             ),
-          ),
           if (date != null) SizedBox(height: 6 * k),
           if (date != null)
             Text(
