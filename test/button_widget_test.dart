@@ -29,8 +29,10 @@ void main() {
     );
     final ready = Completer<void>();
     conn.onReady = ready.complete;
-    await conn.start();
-    await ready.future.timeout(const Duration(seconds: 2));
+    await tester.runAsync(() async {
+      await conn.start();
+      await ready.future.timeout(const Duration(seconds: 2));
+    });
     final env = PanelEnv(
       states: states,
       conn: conn,
@@ -103,8 +105,10 @@ void main() {
     );
     final ready = Completer<void>();
     conn.onReady = ready.complete;
-    await conn.start();
-    await ready.future.timeout(const Duration(seconds: 2));
+    await tester.runAsync(() async {
+      await conn.start();
+      await ready.future.timeout(const Duration(seconds: 2));
+    });
     final env = PanelEnv(
       states: states,
       conn: conn,
