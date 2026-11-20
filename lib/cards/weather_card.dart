@@ -35,6 +35,7 @@ class _WeatherCardState extends State<WeatherCard> {
   Future<void> Function()? _unsub;
   int? _subscribedGeneration;
   int? _subscribingGeneration;
+  int _subscriptionRevision = 0;
 
   @override
   void initState() {
@@ -44,16 +45,53 @@ class _WeatherCardState extends State<WeatherCard> {
   }
 
   @override
+  void didUpdateWidget(covariant WeatherCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    final oldEntity = oldWidget.config.str('entity') ?? '';
+    final oldForecast = oldWidget.config.boolOr('show_forecast', true);
+    final oldType = oldWidget.config.str('forecast_type') ?? 'daily';
+    final changed = oldEntity != entity ||
+        oldForecast != c.boolOr('show_forecast', true) ||
+        oldType != (c.str('forecast_type') ?? 'daily') ||
+        oldWidget.env.conn != widget.env.conn;
+
+    if (oldWidget.env.conn != widget.env.conn) {
+      oldWidget.env.conn.generationListenable.removeListener(
+        _onGenerationChanged,
+      );
+      widget.env.conn.generationListenable.addListener(_onGenerationChanged);
+    }
+
+    if (changed) _resetSubscription();
+  }
+
+  @override
   void dispose() {
+    _subscriptionRevision++;
     widget.env.conn.generationListenable.removeListener(_onGenerationChanged);
     _unsub?.call();
     super.dispose();
   }
 
-  void _onGenerationChanged() {
-    // The old socket has already discarded its subscriptions.
+  void _resetSubscription() {
+    // Invalidate an in-flight subscribe too: it must not install a callback
+    // for the old entity/config when its acknowledgement eventually arrives.
+    _subscriptionRevision++;
+    final unsubscribe = _unsub;
     _unsub = null;
     _subscribedGeneration = null;
+    _forecast = null;
+    if (unsubscribe != null) unawaited(unsubscribe());
+    _maybeSubscribe();
+  }
+
+  void _onGenerationChanged() {
+    // The old socket has already discarded its subscriptions.
+    _subscriptionRevision++;
+    _unsub = null;
+    _subscribedGeneration = null;
+    if (_forecast != null && mounted) setState(() => _forecast = null);
     _maybeSubscribe();
   }
 
@@ -62,6 +100,9 @@ class _WeatherCardState extends State<WeatherCard> {
 
     final conn = widget.env.conn;
     final generation = conn.generation;
+    final revision = _subscriptionRevision;
+    final subscribedEntity = entity;
+    final forecastType = c.str('forecast_type') ?? 'daily';
 
     // Wait for the initial state seed and state_changed subscription.
     if (conn.status.value != HaStatus.online || generation == 0) return;
@@ -75,14 +116,21 @@ class _WeatherCardState extends State<WeatherCard> {
     try {
       final unsubscribe = await conn.subscribe({
         'type': 'weather/subscribe_forecast',
-        'forecast_type': c.str('forecast_type') ?? 'daily',
-        'entity_id': entity,
+        'forecast_type': forecastType,
+        'entity_id': subscribedEntity,
       }, (ev) {
-        if (!mounted || conn.generation != generation) return;
-        setState(() => _forecast = (ev as Map?)?['forecast'] as List? ?? const []);
+        if (!mounted ||
+            conn.generation != generation ||
+            revision != _subscriptionRevision) {
+          return;
+        }
+        setState(
+          () => _forecast = (ev as Map?)?['forecast'] as List? ?? const [],
+        );
       });
 
       if (!mounted ||
+          revision != _subscriptionRevision ||
           conn.generation != generation ||
           conn.status.value != HaStatus.online) {
         await unsubscribe();
@@ -96,6 +144,9 @@ class _WeatherCardState extends State<WeatherCard> {
     } finally {
       if (_subscribingGeneration == generation) {
         _subscribingGeneration = null;
+      }
+      if (mounted && revision != _subscriptionRevision) {
+        _maybeSubscribe();
       }
     }
   }
