@@ -27,7 +27,7 @@ class ClockCard extends StatefulWidget {
   State<ClockCard> createState() => _ClockCardState();
 }
 
-class _ClockCardState extends State<ClockCard> {
+class _ClockCardState extends State<ClockCard> with WidgetsBindingObserver {
   CardConfig get c => widget.config;
   Timer? _timer;
   DateTime _now = DateTime.now();
@@ -35,16 +35,37 @@ class _ClockCardState extends State<ClockCard> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _arm();
   }
 
   @override
+  void didUpdateWidget(covariant ClockCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.config.boolOr('show_seconds', false) !=
+        c.boolOr('show_seconds', false)) {
+      _arm();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      // Android may defer timers while the panel is asleep. Re-read the
+      // wall clock immediately on wake so the weekday/date cannot stay stale.
+      setState(_arm);
+    }
+  }
+
   void _arm() {
+    _timer?.cancel();
     _now = DateTime.now();
     final period = c.boolOr('show_seconds', false) ? 1000 : 60000;
     final wait = period - (_now.millisecondsSinceEpoch % period) + 20;

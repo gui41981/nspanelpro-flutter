@@ -180,7 +180,14 @@ class TileGrid extends StatelessWidget {
         if (j > 0) cells.add(const SizedBox(width: 10));
         cells.add(Expanded(child: children[i + j]));
       }
-      final row = Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: cells);
+      // A non-stretched grid has no bounded row height to stretch into.
+      // Stretching here can produce an infinite-height layout and a gray card.
+      final row = Row(
+        crossAxisAlignment: stretch
+            ? CrossAxisAlignment.stretch
+            : CrossAxisAlignment.start,
+        children: cells,
+      );
       if (rows.isNotEmpty) rows.add(const SizedBox(height: 10));
       rows.add(stretch ? Expanded(child: row) : row);
     }

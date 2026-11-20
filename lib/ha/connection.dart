@@ -106,7 +106,8 @@ class HaConnection {
       _onMessage,
       onDone: () {
         if (!_closed) {
-          _retry();
+          // The stream is already closing; do not close its transport again.
+          _retry(transportAlreadyClosed: true);
         }
       },
       onError: (error) {
@@ -130,7 +131,7 @@ class HaConnection {
     _subs.clear();
   }
 
-  void _retry() {
+  void _retry({bool transportAlreadyClosed = false}) {
     if (_closed || (_retryTimer?.isActive ?? false)) return;
 
     _authed = false;
@@ -139,13 +140,16 @@ class HaConnection {
 
     final listen = _listen;
     _listen = null;
-    if (listen != null) {
+    // onDone means the subscription has already completed. Calling
+    // cancel() from inside that callback can leave stream shutdown waiting
+    // on its own cancellation future.
+    if (listen != null && !transportAlreadyClosed) {
       unawaited(listen.cancel().catchError((Object _) {}));
     }
 
     final transport = _t;
     _t = null;
-    if (transport != null) {
+    if (transport != null && !transportAlreadyClosed) {
       unawaited(transport.close().catchError((Object _) {}));
     }
 

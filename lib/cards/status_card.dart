@@ -107,7 +107,12 @@ class StatusCard extends StatelessWidget {
                         style: const TextStyle(color: Ns.muted, fontSize: 18, fontWeight: FontWeight.w600)),
                   ],
                 )
-              : ClipRect(child: TileGrid(columns: columns, children: tiles)),
+              : ClipRect(
+                  child: SingleChildScrollView(
+                    physics: const NeverScrollableScrollPhysics(),
+                    child: TileGrid(columns: columns, children: tiles),
+                  ),
+                ),
         );
       },
     );
