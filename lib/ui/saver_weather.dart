@@ -38,6 +38,7 @@ class _SaverWeatherState extends State<SaverWeather> {
   Future<void> Function()? _unsub;
   int? _subscribedGeneration;
   int? _subscribingGeneration;
+  int _subscriptionRevision = 0;
 
   @override
   void initState() {
@@ -47,14 +48,45 @@ class _SaverWeatherState extends State<SaverWeather> {
   }
 
   @override
+  void didUpdateWidget(covariant SaverWeather oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    final changed = oldWidget.entity != widget.entity ||
+        oldWidget.forecast != widget.forecast ||
+        oldWidget.env.conn != widget.env.conn;
+
+    if (oldWidget.env.conn != widget.env.conn) {
+      oldWidget.env.conn.generationListenable.removeListener(
+        _onGenerationChanged,
+      );
+      widget.env.conn.generationListenable.addListener(_onGenerationChanged);
+    }
+
+    if (changed) _resetSubscription();
+  }
+
+  @override
   void dispose() {
+    _subscriptionRevision++;
     widget.env.conn.generationListenable.removeListener(_onGenerationChanged);
     _unsub?.call();
     super.dispose();
   }
 
+  void _resetSubscription() {
+    // A pending subscribe must not resurrect the old entity's callback.
+    _subscriptionRevision++;
+    final unsubscribe = _unsub;
+    _unsub = null;
+    _subscribedGeneration = null;
+    _today = null;
+    if (unsubscribe != null) unawaited(unsubscribe());
+    _maybeSubscribe();
+  }
+
   void _onGenerationChanged() {
     // Subscriptions belong to a socket; the old socket is already gone.
+    _subscriptionRevision++;
     _unsub = null;
     _subscribedGeneration = null;
     if (mounted && _today != null) setState(() => _today = null);
@@ -66,6 +98,8 @@ class _SaverWeatherState extends State<SaverWeather> {
 
     final conn = widget.env.conn;
     final generation = conn.generation;
+    final revision = _subscriptionRevision;
+    final subscribedEntity = widget.entity;
     if (conn.status.value != HaStatus.online || generation == 0) return;
 
     if (_subscribedGeneration == generation ||
@@ -78,10 +112,11 @@ class _SaverWeatherState extends State<SaverWeather> {
       final unsubscribe = await conn.subscribe({
         'type': 'weather/subscribe_forecast',
         'forecast_type': 'daily',
-        'entity_id': widget.entity,
+        'entity_id': subscribedEntity,
       }, (ev) {
         final list = (ev as Map?)?['forecast'] as List?;
         if (!mounted ||
+            revision != _subscriptionRevision ||
             conn.generation != generation ||
             list == null ||
             list.isEmpty ||
@@ -92,6 +127,7 @@ class _SaverWeatherState extends State<SaverWeather> {
       });
 
       if (!mounted ||
+          revision != _subscriptionRevision ||
           conn.generation != generation ||
           conn.status.value != HaStatus.online) {
         await unsubscribe();
@@ -106,6 +142,9 @@ class _SaverWeatherState extends State<SaverWeather> {
     } finally {
       if (_subscribingGeneration == generation) {
         _subscribingGeneration = null;
+      }
+      if (mounted && revision != _subscriptionRevision) {
+        _maybeSubscribe();
       }
     }
   }
