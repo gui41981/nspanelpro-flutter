@@ -140,7 +140,10 @@ class HaConnection {
 
     final listen = _listen;
     _listen = null;
-    if (listen != null) {
+    // onDone means the subscription has already completed. Calling
+    // cancel() from inside that callback can leave stream shutdown waiting
+    // on its own cancellation future.
+    if (listen != null && !transportAlreadyClosed) {
       unawaited(listen.cancel().catchError((Object _) {}));
     }
 
