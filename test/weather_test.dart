@@ -211,4 +211,123 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     unawaited(env.conn.dispose());
   });
+  testWidgets('weather card replaces forecast subscription when config changes', (
+    tester,
+  ) async {
+    final fake = FakeHa({
+      'weather.home': st('weather.home', 'cloudy', {'temperature': 12}),
+      'weather.garden': st('weather.garden', 'sunny', {'temperature': 18}),
+    });
+    final env = await _env(fake);
+
+    Widget card({
+      String entity = 'weather.home',
+      String type = 'daily',
+      bool forecast = true,
+    }) => MaterialApp(
+      home: Scaffold(
+        body: WeatherCard(
+          config: {
+            'type': 'custom:nspanel-weather-card',
+            'entity': entity,
+            'forecast_type': type,
+            'show_forecast': forecast,
+          },
+          env: env,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(card());
+    await pumpEventQueue();
+    var requests = fake.sent
+        .where((m) => m['type'] == 'weather/subscribe_forecast')
+        .toList();
+    expect(requests, hasLength(1));
+    expect(requests.single['entity_id'], 'weather.home');
+    expect(requests.single['forecast_type'], 'daily');
+
+    await tester.pumpWidget(card(entity: 'weather.garden', type: 'hourly'));
+    await pumpEventQueue();
+    requests = fake.sent
+        .where((m) => m['type'] == 'weather/subscribe_forecast')
+        .toList();
+    expect(requests, hasLength(2));
+    expect(requests.last['entity_id'], 'weather.garden');
+    expect(requests.last['forecast_type'], 'hourly');
+    expect(
+      fake.sent.where((m) => m['type'] == 'unsubscribe_events'),
+      hasLength(1),
+    );
+
+    await tester.pumpWidget(card(entity: 'weather.garden', forecast: false));
+    await pumpEventQueue();
+    expect(
+      fake.sent.where((m) => m['type'] == 'weather/subscribe_forecast'),
+      hasLength(2),
+    );
+    expect(
+      fake.sent.where((m) => m['type'] == 'unsubscribe_events'),
+      hasLength(2),
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await env.conn.dispose();
+  });
+
+  testWidgets('screensaver weather replaces and releases its subscription on updates', (
+    tester,
+  ) async {
+    final fake = FakeHa({
+      'weather.home': st('weather.home', 'cloudy', {'temperature': 12}),
+      'weather.garden': st('weather.garden', 'sunny', {'temperature': 18}),
+    });
+    final env = await _env(fake);
+
+    Widget saver({String entity = 'weather.home', bool forecast = true}) =>
+        MaterialApp(
+          home: Scaffold(
+            body: SaverWeather(
+              entity: entity,
+              env: env,
+              forecast: forecast,
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(saver());
+    await pumpEventQueue();
+    var requests = fake.sent
+        .where((m) => m['type'] == 'weather/subscribe_forecast')
+        .toList();
+    expect(requests, hasLength(1));
+    expect(requests.single['entity_id'], 'weather.home');
+
+    await tester.pumpWidget(saver(entity: 'weather.garden'));
+    await pumpEventQueue();
+    requests = fake.sent
+        .where((m) => m['type'] == 'weather/subscribe_forecast')
+        .toList();
+    expect(requests, hasLength(2));
+    expect(requests.last['entity_id'], 'weather.garden');
+    expect(
+      fake.sent.where((m) => m['type'] == 'unsubscribe_events'),
+      hasLength(1),
+    );
+
+    await tester.pumpWidget(saver(entity: 'weather.garden', forecast: false));
+    await pumpEventQueue();
+    expect(
+      fake.sent.where((m) => m['type'] == 'weather/subscribe_forecast'),
+      hasLength(2),
+    );
+    expect(
+      fake.sent.where((m) => m['type'] == 'unsubscribe_events'),
+      hasLength(2),
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await env.conn.dispose();
+  });
+
 }
