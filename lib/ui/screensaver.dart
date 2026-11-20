@@ -45,9 +45,11 @@ class Screensaver extends StatefulWidget {
     required this.config,
     required this.onWake,
     this.imageProvider,
+    this.weather,
   });
   final ScreensaverConfig config;
   final VoidCallback onWake;
+  final Widget? weather;
 
   /// Where a photo URL becomes an image; tests hand in a MemoryImage.
   final ImageProvider Function(String url)? imageProvider;
@@ -224,18 +226,19 @@ class _ScreensaverState extends State<Screensaver> {
                 ),
               ),
             ),
-          if (cfg.clock)
+          if (cfg.clock || widget.weather != null)
             AnimatedAlign(
               alignment: _spot,
               duration: const Duration(milliseconds: 800),
               curve: Curves.easeInOutCubic,
               child: _FrostedClock(
-                time: '$hh:$mm',
-                date: cfg.clockDate
+                time: cfg.clock ? '$hh:$mm' : null,
+                date: cfg.clock && cfg.clockDate
                     ? '${_days[_now.weekday - 1]} ${_now.day} ${_months[_now.month - 1]}'
                     : null,
                 frost: cfg.frost,
                 size: cfg.clockSize,
+                extra: widget.weather,
               ),
             ),
         ],
@@ -250,10 +253,12 @@ class _FrostedClock extends StatelessWidget {
     required this.date,
     required this.frost,
     required this.size,
+    this.extra,
   });
-  final String time;
+  final String? time;
   final String? date;
   final bool frost;
+  final Widget? extra;
 
   /// The digits' height; everything else is a proportion of it, so the
   /// 64 px default and a 120 px clock look like the same thing at two sizes.
@@ -276,8 +281,9 @@ class _FrostedClock extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            time,
+          if (time != null)
+            Text(
+            time!,
             style: TextStyle(
               color: Colors.white,
               fontSize: size,
@@ -311,6 +317,10 @@ class _FrostedClock extends StatelessWidget {
                 ],
               ),
             ),
+          if (extra != null) ...[
+            if (time != null) SizedBox(height: 10 * k),
+            extra!,
+          ],
         ],
       ),
     );
