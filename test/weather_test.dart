@@ -175,7 +175,8 @@ void main() {
       expect(find.text('Garden'), findsOneWidget);
       expect(find.text('80% · 1.2mm'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
-      unawaited(env.conn.dispose());
+      await pumpEventQueue();
+      await tester.runAsync(env.conn.dispose);
     },
   );
 
