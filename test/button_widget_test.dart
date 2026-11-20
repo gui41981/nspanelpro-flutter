@@ -14,22 +14,25 @@ void main() {
   testWidgets('lit by another entity, in its own colour, icon only', (
     tester,
   ) async {
-    final fake = FakeHa({
-      'script.movie': st('script.movie', 'off', {
-        'friendly_name': 'Movie mode',
-      }),
-      'input_boolean.movie': st('input_boolean.movie', 'on', {}),
-      'script.normal': st('script.normal', 'off', {'friendly_name': 'Normal'}),
-    });
-    final states = HaStates();
-    final conn = HaConnection(
-      transportFactory: () async => fake,
-      token: 'good',
-      states: states,
-    );
-    final ready = Completer<void>();
-    conn.onReady = ready.complete;
+    late FakeHa fake;
+    late HaStates states;
+    late HaConnection conn;
     await tester.runAsync(() async {
+      fake = FakeHa({
+        'script.movie': st('script.movie', 'off', {
+          'friendly_name': 'Movie mode',
+        }),
+        'input_boolean.movie': st('input_boolean.movie', 'on', {}),
+        'script.normal': st('script.normal', 'off', {'friendly_name': 'Normal'}),
+      });
+      states = HaStates();
+      conn = HaConnection(
+        transportFactory: () async => fake,
+        token: 'good',
+        states: states,
+      );
+      final ready = Completer<void>();
+      conn.onReady = ready.complete;
       await conn.start();
       await ready.future.timeout(const Duration(seconds: 2));
     });
@@ -93,19 +96,22 @@ void main() {
   testWidgets('button card replaces its items when dashboard config changes', (
     tester,
   ) async {
-    final fake = FakeHa({
-      'script.first': st('script.first', 'off', {'friendly_name': 'First'}),
-      'script.second': st('script.second', 'off', {'friendly_name': 'Second'}),
-    });
-    final states = HaStates();
-    final conn = HaConnection(
-      transportFactory: () async => fake,
-      token: 'good',
-      states: states,
-    );
-    final ready = Completer<void>();
-    conn.onReady = ready.complete;
+    late FakeHa fake;
+    late HaStates states;
+    late HaConnection conn;
     await tester.runAsync(() async {
+      fake = FakeHa({
+        'script.first': st('script.first', 'off', {'friendly_name': 'First'}),
+        'script.second': st('script.second', 'off', {'friendly_name': 'Second'}),
+      });
+      states = HaStates();
+      conn = HaConnection(
+        transportFactory: () async => fake,
+        token: 'good',
+        states: states,
+      );
+      final ready = Completer<void>();
+      conn.onReady = ready.complete;
       await conn.start();
       await ready.future.timeout(const Duration(seconds: 2));
     });
