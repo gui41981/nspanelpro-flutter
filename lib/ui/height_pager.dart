@@ -310,19 +310,19 @@ class HeightPager extends StatelessWidget {
       shown: shown,
       awake: awake,
       child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (var i = 0; i < page.cards.length; i++) ...[
-          if (i > 0) const SizedBox(height: Ns.gap),
-          _buildCard(
-            page.cards[i],
-            pageIndex: pageIndex,
-            cardIndex: i,
-            animate: animate,
-          ),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < page.cards.length; i++) ...[
+            if (i > 0) const SizedBox(height: Ns.gap),
+            _buildCard(
+              page.cards[i],
+              pageIndex: pageIndex,
+              cardIndex: i,
+              animate: animate,
+            ),
+          ],
         ],
-      ],
       ),
     );
   }
