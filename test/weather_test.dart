@@ -328,7 +328,8 @@ void main() {
     );
 
     await tester.pumpWidget(const SizedBox());
-    unawaited(env.conn.dispose());
+    await pumpEventQueue();
+    await tester.runAsync(env.conn.dispose);
   });
 
 }
