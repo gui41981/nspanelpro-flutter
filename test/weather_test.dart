@@ -190,7 +190,7 @@ void main() {
         'forecast': [_forecast[1]..['templow'] = 9.0],
       }),
     });
-    final env = await _env(fake);
+    final env = await _env(fake, tester);
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -222,7 +222,7 @@ void main() {
       'weather.home': st('weather.home', 'cloudy', {'temperature': 12}),
       'weather.garden': st('weather.garden', 'sunny', {'temperature': 18}),
     });
-    final env = await _env(fake);
+    final env = await _env(fake, tester);
 
     Widget card({
       String entity = 'weather.home',
@@ -287,7 +287,7 @@ void main() {
       'weather.home': st('weather.home', 'cloudy', {'temperature': 12}),
       'weather.garden': st('weather.garden', 'sunny', {'temperature': 18}),
     });
-    final env = await _env(fake);
+    final env = await _env(fake, tester);
 
     Widget saver({String entity = 'weather.home', bool forecast = true}) =>
         MaterialApp(
