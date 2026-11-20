@@ -725,7 +725,8 @@ class _DashboardState extends State<Dashboard> {
     setState(() {
       _saving = true;
       _saverMounted = true;
-    });    debugPrint('screensaver: on (${force ? 'switched on from HA' : 'idle'})');
+    });
+    debugPrint('screensaver: on (${force ? 'switched on from HA' : 'idle'})');
     _bridge?.screensaver(true);
     _watchProximity();
     final s = _saver;
