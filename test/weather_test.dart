@@ -272,7 +272,7 @@ void main() {
     );
 
     await tester.pumpWidget(const SizedBox());
-    await env.conn.dispose();
+    unawaited(env.conn.dispose());
   });
 
   testWidgets('screensaver weather replaces and releases its subscription on updates', (
@@ -327,7 +327,7 @@ void main() {
     );
 
     await tester.pumpWidget(const SizedBox());
-    await env.conn.dispose();
+    unawaited(env.conn.dispose());
   });
 
 }
