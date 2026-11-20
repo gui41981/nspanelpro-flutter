@@ -22,6 +22,7 @@ import 'ha/states.dart';
 import 'ha/transport.dart';
 import 'ui/motion.dart';
 import 'ui/height_pager.dart';
+import 'ui/saver_weather.dart';
 import 'ui/screensaver.dart';
 import 'ui/setup_screen.dart';
 import 'ui/theme.dart';
@@ -869,7 +870,18 @@ class _DashboardState extends State<Dashboard> {
                   onHidden: () {
                     if (mounted) setState(() => _saverMounted = false);
                   },
-                  child: Screensaver(config: _saver!, onWake: _wake),
+                  child: Screensaver(
+                    config: _saver!,
+                    onWake: _wake,
+                    weather: _saver!.weather == null
+                        ? null
+                        : SaverWeather(
+                            entity: _saver!.weather!,
+                            env: _env,
+                            forecast: _saver!.weatherForecast,
+                            size: _saver!.clockSize,
+                          ),
+                  ),
                 ),
               ),
             Positioned(
