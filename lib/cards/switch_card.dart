@@ -48,8 +48,26 @@ class _Sw {
 
 class _SwitchCardState extends State<SwitchCard> {
   CardConfig get c => widget.config;
-  late final List<_Sw> _sws = _items().map(_Sw.new).toList();
+  late List<_Sw> _sws;
   final _timers = <Timer>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _sws = _items().map(_Sw.new).toList();
+  }
+
+  @override
+  void didUpdateWidget(covariant SwitchCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.config, widget.config)) {
+      for (final timer in _timers) {
+        timer.cancel();
+      }
+      _timers.clear();
+      _sws = _items().map(_Sw.new).toList();
+    }
+  }
 
   List<CardConfig> _items() {
     final raw = c['switches'] is List && c.listOr('switches').isNotEmpty
