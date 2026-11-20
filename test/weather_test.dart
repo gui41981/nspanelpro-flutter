@@ -210,7 +210,8 @@ void main() {
     expect(find.text('12°  Rainy'), findsOneWidget);
     expect(find.textContaining('rain'), findsNothing);
     await tester.pumpWidget(const SizedBox());
-    unawaited(env.conn.dispose());
+    await pumpEventQueue();
+    await tester.runAsync(env.conn.dispose);
   });
   testWidgets('weather card replaces forecast subscription when config changes', (
     tester,
