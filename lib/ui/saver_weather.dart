@@ -36,46 +36,77 @@ class SaverWeather extends StatefulWidget {
 class _SaverWeatherState extends State<SaverWeather> {
   Map<dynamic, dynamic>? _today;
   Future<void> Function()? _unsub;
-  bool _subscribing = false;
+  int? _subscribedGeneration;
+  int? _subscribingGeneration;
 
   @override
   void initState() {
     super.initState();
-    widget.env.conn.status.addListener(_maybeSubscribe);
+    widget.env.conn.generationListenable.addListener(_onGenerationChanged);
     _maybeSubscribe();
   }
 
   @override
   void dispose() {
-    widget.env.conn.status.removeListener(_maybeSubscribe);
+    widget.env.conn.generationListenable.removeListener(_onGenerationChanged);
     _unsub?.call();
     super.dispose();
   }
 
+  void _onGenerationChanged() {
+    // Subscriptions belong to a socket; the old socket is already gone.
+    _unsub = null;
+    _subscribedGeneration = null;
+    if (mounted && _today != null) setState(() => _today = null);
+    _maybeSubscribe();
+  }
+
   Future<void> _maybeSubscribe() async {
-    if (!widget.forecast || _unsub != null || _subscribing) return;
-    if (widget.env.conn.status.value != HaStatus.online) return;
-    _subscribing = true;
+    if (!widget.forecast) return;
+
+    final conn = widget.env.conn;
+    final generation = conn.generation;
+    if (conn.status.value != HaStatus.online || generation == 0) return;
+
+    if (_subscribedGeneration == generation ||
+        _subscribingGeneration == generation) {
+      return;
+    }
+
+    _subscribingGeneration = generation;
     try {
-      _unsub = await widget.env.conn.subscribe(
-        {
-          'type': 'weather/subscribe_forecast',
-          'forecast_type': 'daily',
-          'entity_id': widget.entity,
-        },
-        (ev) {
-          final list = (ev as Map?)?['forecast'] as List?;
-          if (!mounted || list == null || list.isEmpty || list.first is! Map) {
-            return;
-          }
-          setState(() => _today = list.first as Map);
-        },
-      );
+      final unsubscribe = await conn.subscribe({
+        'type': 'weather/subscribe_forecast',
+        'forecast_type': 'daily',
+        'entity_id': widget.entity,
+      }, (ev) {
+        final list = (ev as Map?)?['forecast'] as List?;
+        if (!mounted ||
+            conn.generation != generation ||
+            list == null ||
+            list.isEmpty ||
+            list.first is! Map) {
+          return;
+        }
+        setState(() => _today = list.first as Map);
+      });
+
+      if (!mounted ||
+          conn.generation != generation ||
+          conn.status.value != HaStatus.online) {
+        await unsubscribe();
+        return;
+      }
+
+      _unsub = unsubscribe;
+      _subscribedGeneration = generation;
     } catch (_) {
       // an old core, or a provider without a daily forecast: the attribute,
       // or just the current conditions
     } finally {
-      _subscribing = false;
+      if (_subscribingGeneration == generation) {
+        _subscribingGeneration = null;
+      }
     }
   }
 
