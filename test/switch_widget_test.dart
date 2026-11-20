@@ -20,8 +20,10 @@ void _iconOnly() {
     final conn = HaConnection(transportFactory: () async => fake, token: 'good', states: states);
     final ready = Completer<void>();
     conn.onReady = ready.complete;
-    await conn.start();
-    await ready.future.timeout(const Duration(seconds: 2));
+    await tester.runAsync(() async {
+      await conn.start();
+      await ready.future.timeout(const Duration(seconds: 2));
+    });
     final env = PanelEnv(states: states, conn: conn, settings: Settings(url: 'http://x', token: 't'));
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
@@ -62,8 +64,10 @@ void main() {
     final conn = HaConnection(transportFactory: () async => fake, token: 'good', states: states);
     final ready = Completer<void>();
     conn.onReady = ready.complete;
-    await conn.start();
-    await ready.future.timeout(const Duration(seconds: 2));
+    await tester.runAsync(() async {
+      await conn.start();
+      await ready.future.timeout(const Duration(seconds: 2));
+    });
 
     final env = PanelEnv(states: states, conn: conn, settings: Settings(url: 'http://x', token: 't'));
     await tester.pumpWidget(MaterialApp(
@@ -132,8 +136,10 @@ void main() {
     );
     final ready = Completer<void>();
     conn.onReady = ready.complete;
-    await conn.start();
-    await ready.future.timeout(const Duration(seconds: 2));
+    await tester.runAsync(() async {
+      await conn.start();
+      await ready.future.timeout(const Duration(seconds: 2));
+    });
     final env = PanelEnv(
       states: states,
       conn: conn,
