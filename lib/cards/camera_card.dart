@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../config/dashboard.dart';
+import 'camera_live_view.dart';
 import 'env.dart';
 
 /// Generic renderer for Lovelace camera cards.
@@ -115,11 +116,13 @@ class _CameraCardState extends State<CameraCard> {
 
   bool get _hasSource => _entity != null || _imageUrl != null;
 
+  bool get _isNativeLive => _isLive && _entity != null;
+
   @override
   void initState() {
     super.initState();
     _controller = WebViewController();
-    _loadSource();
+    if (!_isNativeLive) _loadSource();
   }
 
   @override
@@ -129,13 +132,14 @@ class _CameraCardState extends State<CameraCard> {
     if (oldWidget.config.toString() != widget.config.toString() ||
         oldWidget.env.settings.url != widget.env.settings.url ||
         oldWidget.env.settings.token != widget.env.settings.token) {
-      _loadSource();
+      if (!_isNativeLive) _loadSource();
     }
   }
 
   bool _isCurrent(int generation) => mounted && generation == _generation;
 
   Future<void> _loadSource() async {
+    if (_isNativeLive) return;
     final generation = ++_generation;
 
     if (mounted) {
@@ -241,6 +245,19 @@ class _CameraCardState extends State<CameraCard> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isNativeLive) {
+      final rawPtz = widget.config['ptz'];
+      final ptz = rawPtz is Map
+          ? rawPtz.cast<String, dynamic>()
+          : const <String, dynamic>{};
+      return CameraLiveView(
+        key: ValueKey('camera-live-$_entity'),
+        entityId: _entity!,
+        env: widget.env,
+        ptz: ptz,
+      );
+    }
+
     return ColoredBox(
       color: Colors.black,
       child: Stack(

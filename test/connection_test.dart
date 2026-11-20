@@ -63,6 +63,15 @@ class FakeHa implements HaTransport {
           'success': true,
           'result': null,
         });
+      case 'camera/stream':
+        _emit({
+          'id': msg['id'],
+          'type': 'result',
+          'success': true,
+          'result': {
+            'url': '/api/hls/test-token/master_playlist.m3u8',
+          },
+        });
       case 'call_service':
         calls.add(
           '${msg['domain']}.${msg['service']} ${jsonEncode(msg['service_data'])}',
@@ -264,6 +273,33 @@ void main() {
     await conn.callService('light', 'toggle', {'entity_id': 'light.a'});
     await pumpEventQueue();
     expect(sensorNotified, 0);
+  });
+
+  test('requests an HLS stream URL for a camera over the HA websocket', () async {
+    final ready = Completer<void>();
+    conn.onReady = ready.complete;
+    await conn.start();
+    await ready.future;
+
+    final path = await conn.fetchCameraStream('camera.bedroom_fluent');
+
+    expect(path, '/api/hls/test-token/master_playlist.m3u8');
+    final request = fake.sent.singleWhere((m) => m['type'] == 'camera/stream');
+    expect(request['entity_id'], 'camera.bedroom_fluent');
+    expect(request['format'], 'hls');
+  });
+
+  test('rejects a non-camera entity before sending a stream request', () async {
+    final ready = Completer<void>();
+    conn.onReady = ready.complete;
+    await conn.start();
+    await ready.future;
+
+    await expectLater(
+      conn.fetchCameraStream('switch.bedroom_auto_tracking'),
+      throwsArgumentError,
+    );
+    expect(fake.sent.any((m) => m['type'] == 'camera/stream'), isFalse);
   });
 
   test('fetches the lovelace config', () async {
