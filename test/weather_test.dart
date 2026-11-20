@@ -38,7 +38,7 @@ final _forecast = [
   },
 ];
 
-Future<PanelEnv> _env(FakeHa fake) async {
+Future<PanelEnv> _env(FakeHa fake, WidgetTester tester) async {
   final states = HaStates();
   final conn = HaConnection(
     transportFactory: () async => fake,
@@ -47,8 +47,10 @@ Future<PanelEnv> _env(FakeHa fake) async {
   );
   final ready = Completer<void>();
   conn.onReady = ready.complete;
-  await conn.start();
-  await ready.future.timeout(const Duration(seconds: 2));
+  await tester.runAsync(() async {
+    await conn.start();
+    await ready.future.timeout(const Duration(seconds: 2));
+  });
   return PanelEnv(
     states: states,
     conn: conn,
@@ -132,7 +134,7 @@ void main() {
           'forecast': _forecast,
         }),
       });
-      final env = await _env(fake);
+      final env = await _env(fake, tester);
       Future<void> show(Map<String, dynamic> c) async {
         await tester.pumpWidget(
           MaterialApp(home: Scaffold(body: buildCard(c, env))),
