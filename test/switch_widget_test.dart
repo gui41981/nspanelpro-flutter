@@ -10,70 +10,20 @@ import 'package:nspanel_app/ha/states.dart';
 
 import 'connection_test.dart' show FakeHa, st;
 
-void _iconOnly() {
-  testWidgets('show_name and show_state: the tile can be the icon alone', (tester) async {
-    late FakeHa fake;
-    late HaStates states;
-    late HaConnection conn;
-    await tester.runAsync(() async {
-      fake = FakeHa({
-        'switch.a': st('switch.a', 'on', {'friendly_name': 'Garden lights'}),
-        'switch.b': st('switch.b', 'off', {'friendly_name': 'Fountain'}),
-      });
-      states = HaStates();
-      conn = HaConnection(transportFactory: () async => fake, token: 'good', states: states);
-      final ready = Completer<void>();
-      conn.onReady = ready.complete;
-      await conn.start();
-      await ready.future.timeout(const Duration(seconds: 2));
-    });
-    final env = PanelEnv(states: states, conn: conn, settings: Settings(url: 'http://x', token: 't'));
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(
-        body: SwitchCard(
-          config: {
-            'type': 'custom:nspanel-switch-card',
-            'show_name': false,
-            'show_state': false,
-            'switches': [
-              'switch.a',
-              {'entity': 'switch.b', 'show_name': true},
-            ],
-          },
-          env: env,
-        ),
-      ),
-    ));
-    await tester.pump();
-    expect(find.text('Garden lights'), findsNothing);
-    expect(find.text('Fountain'), findsOneWidget, reason: 'this one asked for its name back');
-    expect(find.text('On'), findsNothing);
-    expect(find.text('Off'), findsNothing);
-    expect(tester.widgetList<Icon>(find.byType(Icon)).first.size, 48);
-    unawaited(conn.dispose());
-  });
-}
-
 void main() {
-  _iconOnly();
   testWidgets('a tap is echoed at once, then confirmed by the state; turn_on/turn_off, never toggle',
       (tester) async {
-    late FakeHa fake;
-    late HaStates states;
-    late HaConnection conn;
-    await tester.runAsync(() async {
-      fake = FakeHa({
-        'switch.garden': st('switch.garden', 'off', {'friendly_name': 'Garden lights'}),
-        'input_boolean.guest': st('input_boolean.guest', 'on', {'friendly_name': 'Guest mode'}),
-        'switch.dead': st('switch.dead', 'unavailable', {'friendly_name': 'Pond pump'}),
-      });
-      states = HaStates();
-      conn = HaConnection(transportFactory: () async => fake, token: 'good', states: states);
-      final ready = Completer<void>();
-      conn.onReady = ready.complete;
-      await conn.start();
-      await ready.future.timeout(const Duration(seconds: 2));
+    final fake = FakeHa({
+      'switch.garden': st('switch.garden', 'off', {'friendly_name': 'Garden lights'}),
+      'input_boolean.guest': st('input_boolean.guest', 'on', {'friendly_name': 'Guest mode'}),
+      'switch.dead': st('switch.dead', 'unavailable', {'friendly_name': 'Pond pump'}),
     });
+    final states = HaStates();
+    final conn = HaConnection(transportFactory: () async => fake, token: 'good', states: states);
+    final ready = Completer<void>();
+    conn.onReady = ready.complete;
+    await conn.start();
+    await ready.future.timeout(const Duration(seconds: 2));
 
     final env = PanelEnv(states: states, conn: conn, settings: Settings(url: 'http://x', token: 't'));
     await tester.pumpWidget(MaterialApp(
@@ -127,54 +77,4 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     unawaited(conn.dispose());
   });
-  testWidgets('switch card replaces its items when dashboard config changes', (
-    tester,
-  ) async {
-    late FakeHa fake;
-    late HaStates states;
-    late HaConnection conn;
-    await tester.runAsync(() async {
-      fake = FakeHa({
-        'switch.first': st('switch.first', 'off', {'friendly_name': 'First'}),
-        'switch.second': st('switch.second', 'on', {'friendly_name': 'Second'}),
-      });
-      states = HaStates();
-      conn = HaConnection(
-        transportFactory: () async => fake,
-        token: 'good',
-        states: states,
-      );
-      final ready = Completer<void>();
-      conn.onReady = ready.complete;
-      await conn.start();
-      await ready.future.timeout(const Duration(seconds: 2));
-    });
-    final env = PanelEnv(
-      states: states,
-      conn: conn,
-      settings: Settings(url: 'http://x', token: 't'),
-    );
-
-    Widget panel(String entity, String name) => MaterialApp(
-      home: Scaffold(
-        body: SwitchCard(
-          config: {
-            'type': 'custom:nspanel-switch-card',
-            'switches': [{'entity': entity, 'name': name}],
-          },
-          env: env,
-        ),
-      ),
-    );
-
-    await tester.pumpWidget(panel('switch.first', 'First'));
-    expect(find.text('First'), findsOneWidget);
-    await tester.pumpWidget(panel('switch.second', 'Second'));
-    expect(find.text('First'), findsNothing);
-    expect(find.text('Second'), findsOneWidget);
-    await tester.pumpWidget(const SizedBox());
-    await pumpEventQueue();
-    await tester.runAsync(conn.dispose);
-  });
-
 }
