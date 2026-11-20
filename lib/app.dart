@@ -146,6 +146,8 @@ class Dashboard extends StatefulWidget {
 class _DashboardState extends State<Dashboard> {
   final _frames = FrameWatch();
   int _shown = 0; // the page on screen; only it animates its cards in
+  final ValueNotifier<int> _shownPage = ValueNotifier<int>(0);
+  final ValueNotifier<bool> _dashboardAwake = ValueNotifier<bool>(true);
   late final HaStates _states = HaStates();
   late final HaConnection _conn;
   late PanelEnv _env;
@@ -455,6 +457,8 @@ class _DashboardState extends State<Dashboard> {
     _mqtt?.dispose();
     _announcer.dispose();
     _pageJump.dispose();
+    _shownPage.dispose();
+    _dashboardAwake.dispose();
     _idle?.cancel();
     _prox?.cancel();
     _darkTimer?.cancel();
@@ -717,11 +721,11 @@ class _DashboardState extends State<Dashboard> {
       if (!force) return;
       _forcedSaver = const ScreensaverConfig();
     }
+    _dashboardAwake.value = false;
     setState(() {
       _saving = true;
       _saverMounted = true;
-    });
-    debugPrint('screensaver: on (${force ? 'switched on from HA' : 'idle'})');
+    });    debugPrint('screensaver: on (${force ? 'switched on from HA' : 'idle'})');
     _bridge?.screensaver(true);
     _watchProximity();
     final s = _saver;
@@ -767,6 +771,7 @@ class _DashboardState extends State<Dashboard> {
         if (!on) _display.on();
       });
     }
+    _dashboardAwake.value = true;
     if (_saving) debugPrint('screensaver: off ($why)');
     if (mounted && _saving) setState(() => _saving = false);
     _forcedSaver = null;
@@ -825,8 +830,11 @@ class _DashboardState extends State<Dashboard> {
                 pages: _pages,
                 env: _env,
                 jump: _pageJump,
+                shown: _shownPage,
+                awake: _dashboardAwake,
                 onPage: (i) {
                   _shown = i;
+                  _shownPage.value = i;
                   _bridge?.page(i);
                 },
                 animatePage: (i) => i == _shown,
