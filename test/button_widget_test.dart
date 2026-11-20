@@ -88,4 +88,48 @@ void main() {
     );
     unawaited(conn.dispose());
   });
+  testWidgets('button card replaces its items when dashboard config changes', (
+    tester,
+  ) async {
+    final fake = FakeHa({
+      'script.first': st('script.first', 'off', {'friendly_name': 'First'}),
+      'script.second': st('script.second', 'off', {'friendly_name': 'Second'}),
+    });
+    final states = HaStates();
+    final conn = HaConnection(
+      transportFactory: () async => fake,
+      token: 'good',
+      states: states,
+    );
+    final ready = Completer<void>();
+    conn.onReady = ready.complete;
+    await conn.start();
+    await ready.future.timeout(const Duration(seconds: 2));
+    final env = PanelEnv(
+      states: states,
+      conn: conn,
+      settings: Settings(url: 'http://x', token: 't'),
+    );
+
+    Widget panel(String entity, String name) => MaterialApp(
+      home: Scaffold(
+        body: ButtonCard(
+          config: {
+            'type': 'custom:nspanel-button-card',
+            'buttons': [{'entity': entity, 'name': name}],
+          },
+          env: env,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(panel('script.first', 'First'));
+    expect(find.text('First'), findsOneWidget);
+    await tester.pumpWidget(panel('script.second', 'Second'));
+    expect(find.text('First'), findsNothing);
+    expect(find.text('Second'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    await conn.dispose();
+  });
+
 }
