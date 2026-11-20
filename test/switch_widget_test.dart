@@ -12,15 +12,18 @@ import 'connection_test.dart' show FakeHa, st;
 
 void _iconOnly() {
   testWidgets('show_name and show_state: the tile can be the icon alone', (tester) async {
-    final fake = FakeHa({
-      'switch.a': st('switch.a', 'on', {'friendly_name': 'Garden lights'}),
-      'switch.b': st('switch.b', 'off', {'friendly_name': 'Fountain'}),
-    });
-    final states = HaStates();
-    final conn = HaConnection(transportFactory: () async => fake, token: 'good', states: states);
-    final ready = Completer<void>();
-    conn.onReady = ready.complete;
+    late FakeHa fake;
+    late HaStates states;
+    late HaConnection conn;
     await tester.runAsync(() async {
+      fake = FakeHa({
+        'switch.a': st('switch.a', 'on', {'friendly_name': 'Garden lights'}),
+        'switch.b': st('switch.b', 'off', {'friendly_name': 'Fountain'}),
+      });
+      states = HaStates();
+      conn = HaConnection(transportFactory: () async => fake, token: 'good', states: states);
+      final ready = Completer<void>();
+      conn.onReady = ready.complete;
       await conn.start();
       await ready.future.timeout(const Duration(seconds: 2));
     });
@@ -55,16 +58,19 @@ void main() {
   _iconOnly();
   testWidgets('a tap is echoed at once, then confirmed by the state; turn_on/turn_off, never toggle',
       (tester) async {
-    final fake = FakeHa({
-      'switch.garden': st('switch.garden', 'off', {'friendly_name': 'Garden lights'}),
-      'input_boolean.guest': st('input_boolean.guest', 'on', {'friendly_name': 'Guest mode'}),
-      'switch.dead': st('switch.dead', 'unavailable', {'friendly_name': 'Pond pump'}),
-    });
-    final states = HaStates();
-    final conn = HaConnection(transportFactory: () async => fake, token: 'good', states: states);
-    final ready = Completer<void>();
-    conn.onReady = ready.complete;
+    late FakeHa fake;
+    late HaStates states;
+    late HaConnection conn;
     await tester.runAsync(() async {
+      fake = FakeHa({
+        'switch.garden': st('switch.garden', 'off', {'friendly_name': 'Garden lights'}),
+        'input_boolean.guest': st('input_boolean.guest', 'on', {'friendly_name': 'Guest mode'}),
+        'switch.dead': st('switch.dead', 'unavailable', {'friendly_name': 'Pond pump'}),
+      });
+      states = HaStates();
+      conn = HaConnection(transportFactory: () async => fake, token: 'good', states: states);
+      final ready = Completer<void>();
+      conn.onReady = ready.complete;
       await conn.start();
       await ready.future.timeout(const Duration(seconds: 2));
     });
@@ -124,19 +130,22 @@ void main() {
   testWidgets('switch card replaces its items when dashboard config changes', (
     tester,
   ) async {
-    final fake = FakeHa({
-      'switch.first': st('switch.first', 'off', {'friendly_name': 'First'}),
-      'switch.second': st('switch.second', 'on', {'friendly_name': 'Second'}),
-    });
-    final states = HaStates();
-    final conn = HaConnection(
-      transportFactory: () async => fake,
-      token: 'good',
-      states: states,
-    );
-    final ready = Completer<void>();
-    conn.onReady = ready.complete;
+    late FakeHa fake;
+    late HaStates states;
+    late HaConnection conn;
     await tester.runAsync(() async {
+      fake = FakeHa({
+        'switch.first': st('switch.first', 'off', {'friendly_name': 'First'}),
+        'switch.second': st('switch.second', 'on', {'friendly_name': 'Second'}),
+      });
+      states = HaStates();
+      conn = HaConnection(
+        transportFactory: () async => fake,
+        token: 'good',
+        states: states,
+      );
+      final ready = Completer<void>();
+      conn.onReady = ready.complete;
       await conn.start();
       await ready.future.timeout(const Duration(seconds: 2));
     });
