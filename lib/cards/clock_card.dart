@@ -40,6 +40,15 @@ class _ClockCardState extends State<ClockCard> with WidgetsBindingObserver {
   }
 
   @override
+  void didUpdateWidget(covariant ClockCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.config.boolOr('show_seconds', false) !=
+        c.boolOr('show_seconds', false)) {
+      _arm();
+    }
+  }
+
+  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
