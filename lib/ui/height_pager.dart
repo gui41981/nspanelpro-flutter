@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../config/resolution.dart';
@@ -7,6 +8,7 @@ import '../config/dashboard.dart';
 import 'motion.dart';
 import 'pager.dart';
 import 'theme.dart';
+import 'page_scope.dart';
 
 /// Splits dashboard components into pages according to their actual geometry.
 ///
@@ -18,6 +20,8 @@ class HeightPager extends StatelessWidget {
     super.key,
     required this.pages,
     required this.env,
+    required this.shown,
+    required this.awake,
     this.jump,
     this.onPage,
     this.animatePage,
@@ -25,6 +29,8 @@ class HeightPager extends StatelessWidget {
 
   final List<PanelPage> pages;
   final PanelEnv env;
+  final ValueListenable<int> shown;
+  final ValueListenable<bool> awake;
   final ValueNotifier<int>? jump;
   final ValueChanged<int>? onPage;
   final bool Function(int index)? animatePage;
@@ -283,6 +289,8 @@ class HeightPager extends StatelessWidget {
                   splitPages[i],
                   pageIndex: i,
                   animate: animatePage?.call(i) ?? false,
+                  shown: shown,
+                  awake: awake,
                 ),
             ],
           );
@@ -295,21 +303,28 @@ class HeightPager extends StatelessWidget {
     PanelPage page, {
     required int pageIndex,
     required bool animate,
+    required ValueListenable<int> shown,
+    required ValueListenable<bool> awake,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (var i = 0; i < page.cards.length; i++) ...[
-          if (i > 0) const SizedBox(height: Ns.gap),
-          _buildCard(
-            page.cards[i],
-            pageIndex: pageIndex,
-            cardIndex: i,
-            animate: animate,
-          ),
+    return PageScope(
+      index: pageIndex,
+      shown: shown,
+      awake: awake,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < page.cards.length; i++) ...[
+            if (i > 0) const SizedBox(height: Ns.gap),
+            _buildCard(
+              page.cards[i],
+              pageIndex: pageIndex,
+              cardIndex: i,
+              animate: animate,
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 

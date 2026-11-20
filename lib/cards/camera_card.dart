@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../config/dashboard.dart';
+import '../ui/page_scope.dart';
 import 'camera_live_view.dart';
 import 'env.dart';
 
@@ -67,11 +68,17 @@ class CameraCard extends StatefulWidget {
 }
 
 class _CameraCardState extends State<CameraCard> {
-  late final WebViewController _controller;
+  WebViewController? _controller;
+
+  WebViewController get _webController =>
+      _controller ??= WebViewController();
 
   int _generation = 0;
   int _progress = 0;
   String? _error;
+  PageScope? _pageScope;
+  Listenable? _pageChanges;
+  bool _pageActive = true;
 
   String? get _entity {
     final config = widget.config;
@@ -119,9 +126,27 @@ class _CameraCardState extends State<CameraCard> {
   bool get _isNativeLive => _isLive && _entity != null;
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scope = PageScope.maybeOf(context);
+    if (!identical(scope, _pageScope)) {
+      _pageChanges?.removeListener(_onPageScopeChanged);
+      _pageScope = scope;
+      _pageActive = scope?.active ?? true;
+      _pageChanges = scope?.changes;
+      _pageChanges?.addListener(_onPageScopeChanged);
+    }
+  }
+
+  void _onPageScopeChanged() {
+    if (!mounted) return;
+    final active = _pageScope?.active ?? true;
+    if (active != _pageActive) setState(() => _pageActive = active);
+  }
+
+  @override
   void initState() {
     super.initState();
-    _controller = WebViewController();
     if (!_isNativeLive) _loadSource();
   }
 
@@ -159,13 +184,14 @@ class _CameraCardState extends State<CameraCard> {
     }
 
     try {
-      await _controller.setJavaScriptMode(JavaScriptMode.disabled);
+      final controller = _webController;
+      await controller.setJavaScriptMode(JavaScriptMode.disabled);
       if (!_isCurrent(generation)) return;
 
-      await _controller.setBackgroundColor(Colors.black);
+      await controller.setBackgroundColor(Colors.black);
       if (!_isCurrent(generation)) return;
 
-      await _controller.setNavigationDelegate(
+      await controller.setNavigationDelegate(
         NavigationDelegate(
           onProgress: (progress) {
             if (!_isCurrent(generation)) return;
@@ -226,7 +252,7 @@ class _CameraCardState extends State<CameraCard> {
           ? {'Authorization': 'Bearer $token'}
           : <String, String>{};
 
-      await _controller.loadRequest(uri, headers: headers);
+      await controller.loadRequest(uri, headers: headers);
     } catch (error) {
       if (!_isCurrent(generation)) return;
 
@@ -239,6 +265,7 @@ class _CameraCardState extends State<CameraCard> {
 
   @override
   void dispose() {
+    _pageChanges?.removeListener(_onPageScopeChanged);
     _generation++;
     super.dispose();
   }
@@ -246,6 +273,14 @@ class _CameraCardState extends State<CameraCard> {
   @override
   Widget build(BuildContext context) {
     if (_isNativeLive) {
+      if (!_pageActive) {
+        return const ColoredBox(
+          color: Colors.black,
+          child: Center(
+            child: Text('Camera paused', style: TextStyle(color: Colors.white70)),
+          ),
+        );
+      }
       final rawPtz = widget.config['ptz'];
       final ptz = rawPtz is Map
           ? rawPtz.cast<String, dynamic>()
@@ -263,7 +298,7 @@ class _CameraCardState extends State<CameraCard> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          if (_hasSource) WebViewWidget(controller: _controller),
+          if (_hasSource) WebViewWidget(controller: _webController),
           if (_progress < 100 && _error == null)
             Positioned(
               top: 0,
