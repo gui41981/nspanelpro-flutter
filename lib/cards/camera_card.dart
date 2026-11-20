@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../config/dashboard.dart';
+import '../ui/page_scope.dart';
 import 'camera_live_view.dart';
 import 'env.dart';
 
@@ -72,6 +73,9 @@ class _CameraCardState extends State<CameraCard> {
   int _generation = 0;
   int _progress = 0;
   String? _error;
+  PageScope? _pageScope;
+  Listenable? _pageChanges;
+  bool _pageActive = true;
 
   String? get _entity {
     final config = widget.config;
@@ -117,6 +121,25 @@ class _CameraCardState extends State<CameraCard> {
   bool get _hasSource => _entity != null || _imageUrl != null;
 
   bool get _isNativeLive => _isLive && _entity != null;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scope = PageScope.maybeOf(context);
+    if (!identical(scope, _pageScope)) {
+      _pageChanges?.removeListener(_onPageScopeChanged);
+      _pageScope = scope;
+      _pageActive = scope?.active ?? true;
+      _pageChanges = scope?.changes;
+      _pageChanges?.addListener(_onPageScopeChanged);
+    }
+  }
+
+  void _onPageScopeChanged() {
+    if (!mounted) return;
+    final active = _pageScope?.active ?? true;
+    if (active != _pageActive) setState(() => _pageActive = active);
+  }
 
   @override
   void initState() {
@@ -239,6 +262,7 @@ class _CameraCardState extends State<CameraCard> {
 
   @override
   void dispose() {
+    _pageChanges?.removeListener(_onPageScopeChanged);
     _generation++;
     super.dispose();
   }
@@ -246,6 +270,14 @@ class _CameraCardState extends State<CameraCard> {
   @override
   Widget build(BuildContext context) {
     if (_isNativeLive) {
+      if (!_pageActive) {
+        return const ColoredBox(
+          color: Colors.black,
+          child: Center(
+            child: Text('Camera paused', style: TextStyle(color: Colors.white70)),
+          ),
+        );
+      }
       final rawPtz = widget.config['ptz'];
       final ptz = rawPtz is Map
           ? rawPtz.cast<String, dynamic>()
