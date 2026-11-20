@@ -20,12 +20,17 @@ import 'sensors_card.dart';
 import 'status_card.dart';
 import 'weather_card.dart';
 import 'weather_pro_card.dart';
+import '../util/weather.dart';
 
 /// Resolve a Lovelace node and render it.
 ///
 /// Lovelace config -> resolution -> widget.
 /// Entities and device state remain managed by Home Assistant.
 Widget buildCard(CardConfig c, PanelEnv env) {
+  if (c['type'] == 'weather-forecast') {
+    return WeatherCard(config: weatherConfigFromHa(c), env: env);
+  }
+
   if (CameraCard.supports(c)) {
     return CameraCard(config: c, env: env);
   }
