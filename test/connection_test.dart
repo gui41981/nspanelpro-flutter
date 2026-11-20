@@ -55,14 +55,6 @@ class FakeHa implements HaTransport {
           'success': true,
           'result': null,
         });
-      case 'weather/subscribe_forecast':
-        _subs[msg['id'] as int] = 'weather_forecast';
-        _emit({
-          'id': msg['id'],
-          'type': 'result',
-          'success': true,
-          'result': null,
-        });
       case 'unsubscribe_events':
         _subs.remove(msg['subscription']);
         _emit({
