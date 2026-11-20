@@ -27,23 +27,26 @@ void main() {
     testWidgets('a status card lays out without throwing ($n entities)', (
       tester,
     ) async {
-      final fake = FakeHa({
-        for (final e in reported)
-          'binary_sensor.$e': st(
-            'binary_sensor.$e',
-            e == 'back_door' ? 'on' : 'off',
-            {'device_class': 'door'},
-          ),
-      });
-      final states = HaStates();
-      final conn = HaConnection(
-        transportFactory: () async => fake,
-        token: 'good',
-        states: states,
-      );
-      final ready = Completer<void>();
-      conn.onReady = ready.complete;
+      late FakeHa fake;
+      late HaStates states;
+      late HaConnection conn;
       await tester.runAsync(() async {
+        fake = FakeHa({
+          for (final e in reported)
+            'binary_sensor.$e': st(
+              'binary_sensor.$e',
+              e == 'back_door' ? 'on' : 'off',
+              {'device_class': 'door'},
+            ),
+        });
+        states = HaStates();
+        conn = HaConnection(
+          transportFactory: () async => fake,
+          token: 'good',
+          states: states,
+        );
+        final ready = Completer<void>();
+        conn.onReady = ready.complete;
         await conn.start();
         await ready.future.timeout(const Duration(seconds: 2));
       });
