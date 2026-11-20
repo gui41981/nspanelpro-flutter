@@ -106,7 +106,8 @@ class HaConnection {
       _onMessage,
       onDone: () {
         if (!_closed) {
-          _retry();
+          // The stream is already closing; do not close its transport again.
+          _retry(transportAlreadyClosed: true);
         }
       },
       onError: (error) {
@@ -130,7 +131,7 @@ class HaConnection {
     _subs.clear();
   }
 
-  void _retry() {
+  void _retry({bool transportAlreadyClosed = false}) {
     if (_closed || (_retryTimer?.isActive ?? false)) return;
 
     _authed = false;
@@ -145,7 +146,7 @@ class HaConnection {
 
     final transport = _t;
     _t = null;
-    if (transport != null) {
+    if (transport != null && !transportAlreadyClosed) {
       unawaited(transport.close().catchError((Object _) {}));
     }
 
