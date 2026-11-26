@@ -568,11 +568,12 @@ class _WeatherProCardState extends State<WeatherProCard>
     final source =
         _forecast ?? (s?.attributes['forecast'] as List?) ?? const [];
 
-    // The page shows the next five calendar days, starting tomorrow. Drop
-    // today's entry and any stale dates left at the front by the integration.
+    // Show a full eight-day strip: today plus the following seven days.
+    // Ignore stale entries, keep today's forecast when the integration sends it,
+    // and sort by date so the cards always appear in calendar order.
     final now = DateTime.now();
-    final tomorrow = DateTime(now.year, now.month, now.day + 1);
-    final afterFifthDay = tomorrow.add(const Duration(days: 5));
+    final today = DateTime(now.year, now.month, now.day);
+    final afterSeventhDay = today.add(const Duration(days: 8));
     final upcoming = source.where((entry) {
       if (entry is! Map) return false;
       final parsed = DateTime.tryParse(
@@ -581,7 +582,7 @@ class _WeatherProCardState extends State<WeatherProCard>
       if (parsed == null) return false;
       final local = parsed.toLocal();
       final day = DateTime(local.year, local.month, local.day);
-      return !day.isBefore(tomorrow) && day.isBefore(afterFifthDay);
+      return !day.isBefore(today) && day.isBefore(afterSeventhDay);
     }).toList();
 
     upcoming.sort((a, b) {
@@ -589,7 +590,7 @@ class _WeatherProCardState extends State<WeatherProCard>
       final bDate = DateTime.tryParse(b['datetime']?.toString() ?? '')!;
       return aDate.compareTo(bDate);
     });
-    return upcoming.take(5).toList();
+    return upcoming.take(8).toList();
   }
 
   String _location(HaState? s) {
