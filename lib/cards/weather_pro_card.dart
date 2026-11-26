@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../config/dashboard.dart';
 import '../ha/states.dart';
@@ -31,89 +29,6 @@ const _animatedWeatherAssets = <String, String>{
   'snowy-rainy': 'sleet',
   'exceptional': 'tornado',
 };
-
-/// Small disk cache for animated weather WebP icons. A stale file is kept and used
-/// if the NAS/web server is temporarily unreachable.
-class _WeatherAnimatedIconCache {
-  static const _maxAge = Duration(hours: 24);
-  static const _maxBytes = 5 * 1024 * 1024;
-  static const _timeout = Duration(seconds: 10);
-
-  static final Map<String, Future<File?>> _pending = {};
-
-  static Future<File?> load(String url, String condition) {
-    final key = '$condition|$url';
-    return _pending.putIfAbsent(
-      key,
-      () => _load(url, condition).whenComplete(() => _pending.remove(key)),
-    );
-  }
-
-  static Future<File?> _load(String url, String condition) async {
-    File? cached;
-    try {
-      final support = await getApplicationSupportDirectory();
-      final directory = Directory('${support.path}/weather-icons');
-      await directory.create(recursive: true);
-
-      final fileName = 'weather-$condition-${_urlHash(url)}.webp';
-      final file = File('${directory.path}/$fileName');
-      if (await file.exists()) {
-        cached = file;
-        final age = DateTime.now().difference(await file.lastModified());
-        if (age < _maxAge) return file;
-      }
-
-      final client = HttpClient()
-        ..connectionTimeout = _timeout;
-      try {
-        final request = await client.getUrl(Uri.parse(url)).timeout(_timeout);
-        final response = await request.close().timeout(_timeout);
-        if (response.statusCode != HttpStatus.ok ||
-            response.contentLength > _maxBytes) {
-          return cached;
-        }
-
-        final bytes = await response.fold<List<int>>(
-          <int>[],
-          (all, chunk) {
-            if (all.length + chunk.length > _maxBytes) {
-              throw const FormatException('Weather WebP exceeds 5 MiB');
-            }
-            all.addAll(chunk);
-            return all;
-          },
-        ).timeout(_timeout);
-
-        final isWebP = bytes.length >= 12 &&
-            String.fromCharCodes(bytes.sublist(0, 4)) == 'RIFF' &&
-            String.fromCharCodes(bytes.sublist(8, 12)) == 'WEBP';
-        if (!isWebP) return cached;
-
-        final temporary = File('${file.path}.tmp');
-        await temporary.writeAsBytes(bytes, flush: true);
-        if (await file.exists()) await file.delete();
-        final saved = await temporary.rename(file.path);
-        await FileImage(saved).evict();
-        return saved;
-      } finally {
-        client.close(force: true);
-      }
-    } catch (error) {
-      debugPrint('[WEATHER_ICON_CACHE] $condition: $error');
-      return cached;
-    }
-  }
-
-  static String _urlHash(String value) {
-    var hash = 0x811c9dc5;
-    for (final unit in value.codeUnits) {
-      hash ^= unit;
-      hash = (hash * 0x01000193) & 0xffffffff;
-    }
-    return hash.toRadixString(16);
-  }
-}
 
 const _daysLong = [
   'lundi',
@@ -528,17 +443,6 @@ class _WeatherProCardState extends State<WeatherProCard>
     return widget.env.settings.resolve(url);
   }
 
-  String? _animatedWeatherIconUrl(String condition) {
-    final asset = _animatedWeatherAssets[condition];
-    if (asset == null) return null;
-
-    final base =
-        c.str('animated_icon_url') ??
-        'http://192.168.1.95/nspanel-weather/animated';
-    final file = '$asset.webp';
-    final url = base.endsWith('/') ? '$base$file' : '$base/$file';
-    return widget.env.settings.resolve(url);
-  }
 
   Widget _mdiWeatherIcon(String condition, double size) {
     final mdiCondition = condition == 'clear' ? 'sunny' : condition;
@@ -551,29 +455,18 @@ class _WeatherProCardState extends State<WeatherProCard>
   }
 
   Widget _weatherIcon(String condition, {double size = 110}) {
-    final url = _animatedWeatherIconUrl(condition);
-    if (url == null) return _mdiWeatherIcon(condition, size);
+    final asset = _animatedWeatherAssets[condition];
+    if (asset == null) return _mdiWeatherIcon(condition, size);
 
-    return FutureBuilder<File?>(
-      future: _WeatherAnimatedIconCache.load(url, condition),
-      builder: (context, snapshot) {
-        final file = snapshot.data;
-        if (file == null) return _mdiWeatherIcon(condition, size);
-
-        return Image.file(
-          file,
-          width: size,
-          height: size,
-          fit: BoxFit.contain,
-          gaplessPlayback: true,
-          errorBuilder: (context, error, stack) {
-            debugPrint(
-              '[WEATHER_ICON_ERROR] condition="$condition"'
-              ' file="${file.path}" error=$error',
-            );
-            return _mdiWeatherIcon(condition, size);
-          },
-        );
+    return Image.asset(
+      'assets/weather/animated/$asset.webp',
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+      gaplessPlayback: true,
+      errorBuilder: (context, error, stack) {
+        debugPrint('[WEATHER_ICON_ERROR] $condition: $error');
+        return _mdiWeatherIcon(condition, size);
       },
     );
   }
