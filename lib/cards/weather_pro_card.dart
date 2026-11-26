@@ -60,7 +60,7 @@ class _WeatherAnimatedIconCache {
       final directory = Directory('${support.path}/weather-icons');
       await directory.create(recursive: true);
 
-      final fileName = 'weather-$condition-${_urlHash(url)}.gif';
+      final fileName = 'weather-$condition-${_urlHash(url)}.webp';
       final file = File('${directory.path}/$fileName');
       if (await file.exists()) {
         cached = file;
@@ -82,19 +82,17 @@ class _WeatherAnimatedIconCache {
           <int>[],
           (all, chunk) {
             if (all.length + chunk.length > _maxBytes) {
-              throw const FormatException('Weather GIF exceeds 5 MiB');
+              throw const FormatException('Weather WebP exceeds 5 MiB');
             }
             all.addAll(chunk);
             return all;
           },
         ).timeout(_timeout);
 
-        final signature = bytes.length >= 6
-            ? String.fromCharCodes(bytes.take(6))
-            : '';
-        if (signature != 'GIF87a' && signature != 'GIF89a') {
-          return cached;
-        }
+        final isWebP = bytes.length >= 12 &&
+            String.fromCharCodes(bytes.sublist(0, 4)) == 'RIFF' &&
+            String.fromCharCodes(bytes.sublist(8, 12)) == 'WEBP';
+        if (!isWebP) return cached;
 
         final temporary = File('${file.path}.tmp');
         await temporary.writeAsBytes(bytes, flush: true);
@@ -539,7 +537,7 @@ class _WeatherProCardState extends State<WeatherProCard>
 
     final base =
         c.str('animated_icon_url') ?? '/local/nspanel-weather/animated';
-    final file = '$condition.gif';
+    final file = '$condition.webp';
     final url = base.endsWith('/') ? '$base$file' : '$base/$file';
     return widget.env.settings.resolve(url);
   }
