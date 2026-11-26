@@ -572,7 +572,7 @@ class _WeatherProCardState extends State<WeatherProCard>
     // Default to five: today plus the following four days.
     // Ignore stale entries, keep today's forecast when the integration sends it,
     // and sort by date so the cards always appear in calendar order.
-    final dayCount = c.intOr('forecast_days', 5).clamp(1, 8);
+    final dayCount = c.intOr('forecast_count', 5).clamp(1, 8);
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final afterLastDay = today.add(Duration(days: dayCount));
