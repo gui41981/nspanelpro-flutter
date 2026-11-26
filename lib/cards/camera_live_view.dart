@@ -183,10 +183,15 @@ class _CameraLiveViewState extends State<CameraLiveView> {
         fit: StackFit.expand,
         children: [
           if (player != null && player.value.isInitialized)
-            Center(
-              child: AspectRatio(
-                aspectRatio: player.value.aspectRatio,
-                child: VideoPlayer(player),
+            Positioned.fill(
+              child: FittedBox(
+                fit: BoxFit.cover,
+                clipBehavior: Clip.hardEdge,
+                child: SizedBox(
+                  width: player.value.size.width,
+                  height: player.value.size.height,
+                  child: VideoPlayer(player),
+                ),
               ),
             ),
           if (_loading)
