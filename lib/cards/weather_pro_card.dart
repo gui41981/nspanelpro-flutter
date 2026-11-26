@@ -568,12 +568,14 @@ class _WeatherProCardState extends State<WeatherProCard>
     final source =
         _forecast ?? (s?.attributes['forecast'] as List?) ?? const [];
 
-    // Show five days: today plus the following four days.
+    // The Lovelace card controls the number of displayed days (1–8).
+    // Default to five: today plus the following four days.
     // Ignore stale entries, keep today's forecast when the integration sends it,
     // and sort by date so the cards always appear in calendar order.
+    final dayCount = c.intOr('forecast_days', 5).clamp(1, 8);
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final afterFourthDay = today.add(const Duration(days: 5));
+    final afterLastDay = today.add(Duration(days: dayCount));
     final upcoming = source.where((entry) {
       if (entry is! Map) return false;
       final parsed = DateTime.tryParse(
@@ -582,7 +584,7 @@ class _WeatherProCardState extends State<WeatherProCard>
       if (parsed == null) return false;
       final local = parsed.toLocal();
       final day = DateTime(local.year, local.month, local.day);
-      return !day.isBefore(today) && day.isBefore(afterFourthDay);
+      return !day.isBefore(today) && day.isBefore(afterLastDay);
     }).toList();
 
     upcoming.sort((a, b) {
@@ -590,7 +592,7 @@ class _WeatherProCardState extends State<WeatherProCard>
       final bDate = DateTime.tryParse(b['datetime']?.toString() ?? '')!;
       return aDate.compareTo(bDate);
     });
-    return upcoming.take(5).toList();
+    return upcoming.take(dayCount).toList();
   }
 
   String _location(HaState? s) {
