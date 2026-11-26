@@ -14,29 +14,25 @@ import 'light_control.dart';
 
 const _daysShort = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
-/// HA condition names supported by the animated GIF set on the web server.
-/// The existing MDI glyph remains the fallback for every missing/invalid GIF.
-const _animatedWeatherConditions = <String>{
-  'clear-night',
-  'cloudy',
-  'exceptional',
-  'fog',
-  'hail',
-  'lightning',
-  'lightning-rainy',
-  'partlycloudy',
-  'pouring',
-  'rainy',
-  'snowy',
-  'snowy-rainy',
-  'sunny',
-  'windy',
-  'windy-variant',
-  // Compatibility alias used by a few weather integrations.
-  'clear',
+/// Map Home Assistant conditions to the nine animated WebP assets in the
+/// original icon pack. Conditions without a matching illustration keep MDI.
+const _animatedWeatherAssets = <String, String>{
+  'sunny': 'sunny',
+  'clear': 'sunny',
+  'partlycloudy': 'partly-cloudy',
+  'cloudy': 'cloudy',
+  'fog': 'foggy',
+  'hail': 'sleet',
+  'lightning': 'storm',
+  'lightning-rainy': 'storm',
+  'rainy': 'rainy',
+  'pouring': 'rainy',
+  'snowy': 'snow',
+  'snowy-rainy': 'sleet',
+  'exceptional': 'tornado',
 };
 
-/// Small disk cache for animated weather GIFs. A stale file is kept and used
+/// Small disk cache for animated weather WebP icons. A stale file is kept and used
 /// if the NAS/web server is temporarily unreachable.
 class _WeatherAnimatedIconCache {
   static const _maxAge = Duration(hours: 24);
@@ -533,12 +529,13 @@ class _WeatherProCardState extends State<WeatherProCard>
   }
 
   String? _animatedWeatherIconUrl(String condition) {
-    if (!_animatedWeatherConditions.contains(condition)) return null;
+    final asset = _animatedWeatherAssets[condition];
+    if (asset == null) return null;
 
     final base =
         c.str('animated_icon_url') ??
         'http://192.168.1.95/nspanel-weather/animated';
-    final file = '$condition.webp';
+    final file = '$asset.webp';
     final url = base.endsWith('/') ? '$base$file' : '$base/$file';
     return widget.env.settings.resolve(url);
   }
