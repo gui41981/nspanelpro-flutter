@@ -545,8 +545,9 @@ class _WeatherProCardState extends State<WeatherProCard>
   }
 
   Widget _mdiWeatherIcon(String condition, double size) {
+    final mdiCondition = condition == 'clear' ? 'sunny' : condition;
     return Icon(
-      mdi(weatherIcons[condition] ?? 'mdi:weather-cloudy'),
+      mdi(weatherIcons[mdiCondition] ?? 'mdi:weather-cloudy'),
       size: size,
       color: Colors.white,
       shadows: const [Shadow(blurRadius: 10, color: Colors.black87)],
