@@ -536,7 +536,8 @@ class _WeatherProCardState extends State<WeatherProCard>
     if (!_animatedWeatherConditions.contains(condition)) return null;
 
     final base =
-        c.str('animated_icon_url') ?? '/local/nspanel-weather/animated';
+        c.str('animated_icon_url') ??
+        'http://192.168.1.95/nspanel-weather/animated';
     final file = '$condition.webp';
     final url = base.endsWith('/') ? '$base$file' : '$base/$file';
     return widget.env.settings.resolve(url);
