@@ -945,10 +945,10 @@ class _WeatherProCardState extends State<WeatherProCard>
               ),
 
               if (night && !broken)
-                const Positioned(
-                  top: 104,
-                  right: 76,
-                  child: _LunarOverlay(),
+                const Positioned.fill(
+                  child: Center(
+                    child: _LunarOverlay(),
+                  ),
                 ),
 
               if (broken)
