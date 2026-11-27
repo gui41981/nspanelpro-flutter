@@ -1,7 +1,9 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../config/dashboard.dart';
 import '../ha/states.dart';
@@ -159,16 +161,24 @@ class _LunarOverlay extends StatefulWidget {
 
 class _LunarOverlayState extends State<_LunarOverlay> {
   late final double _phase;
+  late final Future<ui.Image> _moonImage;
 
   @override
   void initState() {
     super.initState();
-    // Calculée une seule fois à la création de l'overlay, au début de la nuit.
     _phase = _lunarPhase(DateTime.now().toUtc());
+    _moonImage = _loadMoonImage();
+  }
+
+  Future<ui.Image> _loadMoonImage() async {
+    final data = await rootBundle.load('assets/weather/animated/moon.jpg');
+    final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
+    final frame = await codec.getNextFrame();
+    codec.dispose();
+    return frame.image;
   }
 
   double _lunarPhase(DateTime now) {
-    // Nouvelle lune connue : 2000-01-06 18:14 UTC.
     const epoch = 947182440000;
     const synodicMonth = 29.530588853 * 24 * 60 * 60 * 1000;
     final elapsed = now.millisecondsSinceEpoch - epoch;
@@ -177,26 +187,20 @@ class _LunarOverlayState extends State<_LunarOverlay> {
 
   @override
   Widget build(BuildContext context) {
-    const size = 324.0; // diamètre lunaire environ 3 fois supérieur à l'ancien.
+    const size = 324.0;
     return IgnorePointer(
       child: SizedBox(
         width: size,
         height: size,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            ClipOval(
-              child: Image.asset(
-                'assets/weather/animated/moon.jpg',
-                alignment: Alignment.center,
-                fit: BoxFit.contain,
-                filterQuality: FilterQuality.high,
-              ),
-            ),
-            CustomPaint(
-              painter: _MoonPhasePainter(_phase),
-            ),
-          ],
+        child: FutureBuilder<ui.Image>(
+          future: _moonImage,
+          builder: (context, snapshot) {
+            final image = snapshot.data;
+            if (image == null) return const SizedBox.expand();
+            return CustomPaint(
+              painter: _MoonPhasePainter(image, _phase),
+            );
+          },
         ),
       ),
     );
@@ -204,67 +208,68 @@ class _LunarOverlayState extends State<_LunarOverlay> {
 }
 
 class _MoonPhasePainter extends CustomPainter {
-  const _MoonPhasePainter(this.phase);
+  const _MoonPhasePainter(this.image, this.phase);
 
+  final ui.Image image;
   final double phase;
 
   @override
   void paint(Canvas canvas, Size size) {
+    final dst = Offset.zero & size;
+    final src = Rect.fromLTWH(
+      0,
+      0,
+      image.width.toDouble(),
+      image.height.toDouble(),
+    );
+
+    // Le fond noir de la photo est composé en mode screen sur le fond météo :
+    // le noir disparaît complètement, sans disque ni détourage circulaire.
+    canvas.drawImageRect(
+      image,
+      src,
+      dst,
+      Paint()
+        ..blendMode = BlendMode.screen
+        ..filterQuality = FilterQuality.high,
+    );
+
     final radius = size.shortestSide * .5;
     final center = Offset(size.width / 2, size.height / 2);
     final angle = 2 * math.pi * phase;
     final waxing = math.sin(angle) >= 0;
-    // Projection orthographique de la limite jour/nuit sur le disque :
-    // l'ellipse du terminateur s'ouvre ou se referme selon la phase.
     final terminatorRadius = (waxing ? 1.0 : -1.0) *
         math.cos(angle) * radius;
     const k = 0.5522847498;
 
     final shadow = Path()..moveTo(center.dx, center.dy - radius);
     if (waxing) {
-      // Partie sombre à gauche : contour lunaire gauche, puis terminateur.
       shadow
         ..cubicTo(
-          center.dx - k * radius,
-          center.dy - radius,
-          center.dx - k * radius,
-          center.dy + radius,
-          center.dx,
-          center.dy + radius,
+          center.dx - k * radius, center.dy - radius,
+          center.dx - k * radius, center.dy + radius,
+          center.dx, center.dy + radius,
         )
         ..cubicTo(
-          center.dx + k * terminatorRadius,
-          center.dy + radius,
-          center.dx + k * terminatorRadius,
-          center.dy - radius,
-          center.dx,
-          center.dy - radius,
+          center.dx + k * terminatorRadius, center.dy + radius,
+          center.dx + k * terminatorRadius, center.dy - radius,
+          center.dx, center.dy - radius,
         );
     } else {
-      // Partie sombre à droite.
       shadow
         ..cubicTo(
-          center.dx + k * radius,
-          center.dy - radius,
-          center.dx + k * radius,
-          center.dy + radius,
-          center.dx,
-          center.dy + radius,
+          center.dx + k * radius, center.dy - radius,
+          center.dx + k * radius, center.dy + radius,
+          center.dx, center.dy + radius,
         )
         ..cubicTo(
-          center.dx + k * terminatorRadius,
-          center.dy + radius,
-          center.dx + k * terminatorRadius,
-          center.dy - radius,
-          center.dx,
-          center.dy - radius,
+          center.dx + k * terminatorRadius, center.dy + radius,
+          center.dx + k * terminatorRadius, center.dy - radius,
+          center.dx, center.dy - radius,
         );
     }
     shadow.close();
 
-    // Ombre douce et translucide, confinée à la face non éclairée.
-    // Aucun disque supplémentaire, aucun contour ni halo artificiel.
-    final shadowRect = Rect.fromCircle(center: center, radius: radius);
     canvas.drawPath(
       shadow,
       Paint()
@@ -277,13 +282,13 @@ class _MoonPhasePainter extends CustomPainter {
             Color(0x76000000),
           ],
           stops: const [0, .55, 1],
-        ).createShader(shadowRect),
+        ).createShader(Rect.fromCircle(center: center, radius: radius)),
     );
   }
 
   @override
   bool shouldRepaint(covariant _MoonPhasePainter oldDelegate) =>
-      oldDelegate.phase != phase;
+      oldDelegate.image != image || oldDelegate.phase != phase;
 }
 
 class WeatherProCard extends StatefulWidget {
