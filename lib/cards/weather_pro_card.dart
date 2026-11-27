@@ -311,6 +311,7 @@ class _WeatherProCardState extends State<WeatherProCard>
 
   int _buildCount = 0;
   String? _lastBackgroundUrl;
+  String? _lastNightLogKey;
 
   String get entity => c.str('entity') ?? '';
 
@@ -888,6 +889,11 @@ class _WeatherProCardState extends State<WeatherProCard>
           builder: (context, sun, _) {
             final night = sun?.state == 'below_horizon';
             final weatherCondition = _condition(s);
+            final nightLogKey = 'sun=${sun?.state ?? 'null'}|weather=$weatherCondition|night=$night';
+            if (_lastNightLogKey != nightLogKey) {
+              debugPrint('[WEATHER_NIGHT_STATE] $nightLogKey');
+              _lastNightLogKey = nightLogKey;
+            }
             final displayCondition = night &&
                     (weatherCondition == 'sunny' || weatherCondition == 'clear')
                 ? 'clear-night'
