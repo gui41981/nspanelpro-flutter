@@ -20,6 +20,7 @@ Place these nine files in that directory:
 - `tornado.webp`
 - `foggy.webp`
 - `sleet.webp`
+- `clear-night.webp`
 
 Home Assistant conditions are mapped to the closest matching illustration:
 sunny/clear, partly cloudy, cloudy, fog, hail, lightning and rain, rain,
