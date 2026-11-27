@@ -227,18 +227,24 @@ class _LunarOverlayState extends State<_LunarOverlay> {
               }
               return const SizedBox.expand();
             }
-            return Transform.rotate(
-              angle: moon.tilt * 3.141592653589793 / 180,
-              child: Image.network(
-                moon.imageUrl,
-                width: size,
-                height: size,
-                fit: BoxFit.contain,
-                filterQuality: FilterQuality.high,
-                errorBuilder: (context, error, stack) {
-                  debugPrint('[MOONPHASES_IMAGE_ERROR] $error');
-                  return const SizedBox.expand();
-                },
+            // The Moon disk in Moonphases' 320x320 PNG is optically
+            // above and left of the canvas centre. Offset the rendered image
+            // so the visible lunar disk, not the PNG canvas, is centred.
+            return Transform.translate(
+              offset: const Offset(6, 10),
+              child: Transform.rotate(
+                angle: moon.tilt * 3.141592653589793 / 180,
+                child: Image.network(
+                  moon.imageUrl,
+                  width: size,
+                  height: size,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
+                  errorBuilder: (context, error, stack) {
+                    debugPrint('[MOONPHASES_IMAGE_ERROR] $error');
+                    return const SizedBox.expand();
+                  },
+                ),
               ),
             );
           },
