@@ -157,29 +157,20 @@ class _LunarOverlay extends StatefulWidget {
 }
 
 class _LunarOverlayState extends State<_LunarOverlay> {
-  late DateTime _now;
-  Timer? _timer;
+  late final double _phase;
 
   @override
   void initState() {
     super.initState();
-    _now = DateTime.now().toUtc();
-    _timer = Timer.periodic(const Duration(hours: 1), (_) {
-      if (mounted) setState(() => _now = DateTime.now().toUtc());
-    });
+    // Calculate once when the overlay is created at the start of the night.
+    _phase = _lunarPhase(DateTime.now().toUtc());
   }
 
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  double get _phase {
+  double _lunarPhase(DateTime now) {
     // Known new moon: 2000-01-06 18:14 UTC.
     const epoch = 947182440000;
     const synodicMonth = 29.530588853 * 24 * 60 * 60 * 1000;
-    final elapsed = _now.millisecondsSinceEpoch - epoch;
+    final elapsed = now.millisecondsSinceEpoch - epoch;
     return ((elapsed / synodicMonth) % 1 + 1) % 1;
   }
 
