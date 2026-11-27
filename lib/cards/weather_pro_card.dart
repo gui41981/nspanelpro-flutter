@@ -1,9 +1,9 @@
-import 'dart:math' as math;
-import 'dart:ui' as ui;
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../config/dashboard.dart';
 import '../ha/states.dart';
@@ -149,9 +149,8 @@ class _WeatherClockState extends State<_WeatherClock> {
   }
 }
 
-/// Decorative lunar overlay used only while the weather entity reports clear-night.
-/// The existing Star.png background is deliberately left untouched.
-// Image lunaire : NASA Goddard Space Flight Center / LROC, via Wikimedia Commons (CC BY 2.0).
+/// NASA Dial-A-Moon overlay, created once when the night begins.
+/// The returned NASA image already contains the real lunar phase and terminator.
 class _LunarOverlay extends StatefulWidget {
   const _LunarOverlay();
 
@@ -160,29 +159,59 @@ class _LunarOverlay extends StatefulWidget {
 }
 
 class _LunarOverlayState extends State<_LunarOverlay> {
-  late final double _phase;
   late final Future<ui.Image> _moonImage;
 
   @override
   void initState() {
     super.initState();
-    _phase = _lunarPhase(DateTime.now().toUtc());
-    _moonImage = _loadMoonImage();
+    _moonImage = _loadNasaMoon();
   }
 
-  Future<ui.Image> _loadMoonImage() async {
-    final data = await rootBundle.load('assets/weather/animated/moon.jpg');
-    final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
-    final frame = await codec.getNextFrame();
-    codec.dispose();
-    return frame.image;
-  }
+  Future<ui.Image> _loadNasaMoon() async {
+    final now = DateTime.now().toUtc();
+    final stamp = '${now.year.toString().padLeft(4, '0')}-'
+        '${now.month.toString().padLeft(2, '0')}-'
+        '${now.day.toString().padLeft(2, '0')}T'
+        '${now.hour.toString().padLeft(2, '0')}:'
+        '${now.minute.toString().padLeft(2, '0')}';
+    final client = HttpClient();
+    try {
+      final apiRequest = await client.getUrl(
+        Uri.parse('https://svs.gsfc.nasa.gov/api/dialamoon/$stamp'),
+      );
+      final apiResponse = await apiRequest.close().timeout(
+        const Duration(seconds: 20),
+      );
+      if (apiResponse.statusCode != HttpStatus.ok) {
+        throw HttpException('NASA Dial-A-Moon HTTP ${apiResponse.statusCode}');
+      }
+      final apiBytes = await apiResponse.fold<List<int>>(
+        <int>[],
+        (buffer, chunk) => buffer..addAll(chunk),
+      );
+      final payload = jsonDecode(utf8.decode(apiBytes)) as Map<String, dynamic>;
+      final imageUrl = (payload['image'] as Map<String, dynamic>)['url'] as String;
 
-  double _lunarPhase(DateTime now) {
-    const epoch = 947182440000;
-    const synodicMonth = 29.530588853 * 24 * 60 * 60 * 1000;
-    final elapsed = now.millisecondsSinceEpoch - epoch;
-    return ((elapsed / synodicMonth) % 1 + 1) % 1;
+      final imageRequest = await client.getUrl(Uri.parse(imageUrl));
+      final imageResponse = await imageRequest.close().timeout(
+        const Duration(seconds: 30),
+      );
+      if (imageResponse.statusCode != HttpStatus.ok) {
+        throw HttpException('NASA Moon image HTTP ${imageResponse.statusCode}');
+      }
+      final imageBytes = await imageResponse.fold<List<int>>(
+        <int>[],
+        (buffer, chunk) => buffer..addAll(chunk),
+      );
+      final codec = await ui.instantiateImageCodec(
+        Uint8List.fromList(imageBytes),
+      );
+      final frame = await codec.getNextFrame();
+      codec.dispose();
+      return frame.image;
+    } finally {
+      client.close(force: true);
+    }
   }
 
   @override
@@ -196,10 +225,13 @@ class _LunarOverlayState extends State<_LunarOverlay> {
           future: _moonImage,
           builder: (context, snapshot) {
             final image = snapshot.data;
-            if (image == null) return const SizedBox.expand();
-            return CustomPaint(
-              painter: _MoonPhasePainter(image, _phase),
-            );
+            if (image == null) {
+              if (snapshot.hasError) {
+                debugPrint('[NASA_MOON_ERROR] ${snapshot.error}');
+              }
+              return const SizedBox.expand();
+            }
+            return CustomPaint(painter: _NasaMoonPainter(image));
           },
         ),
       ),
@@ -207,88 +239,34 @@ class _LunarOverlayState extends State<_LunarOverlay> {
   }
 }
 
-class _MoonPhasePainter extends CustomPainter {
-  const _MoonPhasePainter(this.image, this.phase);
+class _NasaMoonPainter extends CustomPainter {
+  const _NasaMoonPainter(this.image);
 
   final ui.Image image;
-  final double phase;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final dst = Offset.zero & size;
     final src = Rect.fromLTWH(
       0,
       0,
       image.width.toDouble(),
       image.height.toDouble(),
     );
-
-    // Le fond noir de la photo est composé en mode screen sur le fond météo :
-    // le noir disparaît complètement, sans disque ni détourage circulaire.
     canvas.drawImageRect(
       image,
       src,
-      dst,
+      Offset.zero & size,
       Paint()
+        // NASA's JPEG has a black surround; screen removes it against the
+        // existing weather background without drawing an artificial disc.
         ..blendMode = BlendMode.screen
         ..filterQuality = FilterQuality.high,
-    );
-
-    final radius = size.shortestSide * .5;
-    final center = Offset(size.width / 2, size.height / 2);
-    final angle = 2 * math.pi * phase;
-    final waxing = math.sin(angle) >= 0;
-    final terminatorRadius = (waxing ? 1.0 : -1.0) *
-        math.cos(angle) * radius;
-    const k = 0.5522847498;
-
-    final shadow = Path()..moveTo(center.dx, center.dy - radius);
-    if (waxing) {
-      shadow
-        ..cubicTo(
-          center.dx - k * radius, center.dy - radius,
-          center.dx - k * radius, center.dy + radius,
-          center.dx, center.dy + radius,
-        )
-        ..cubicTo(
-          center.dx + k * terminatorRadius, center.dy + radius,
-          center.dx + k * terminatorRadius, center.dy - radius,
-          center.dx, center.dy - radius,
-        );
-    } else {
-      shadow
-        ..cubicTo(
-          center.dx + k * radius, center.dy - radius,
-          center.dx + k * radius, center.dy + radius,
-          center.dx, center.dy + radius,
-        )
-        ..cubicTo(
-          center.dx + k * terminatorRadius, center.dy + radius,
-          center.dx + k * terminatorRadius, center.dy - radius,
-          center.dx, center.dy - radius,
-        );
-    }
-    shadow.close();
-
-    canvas.drawPath(
-      shadow,
-      Paint()
-        ..shader = LinearGradient(
-          begin: waxing ? Alignment.centerLeft : Alignment.centerRight,
-          end: waxing ? Alignment.centerRight : Alignment.centerLeft,
-          colors: const [
-            Color(0xA8000000),
-            Color(0x92000000),
-            Color(0x76000000),
-          ],
-          stops: const [0, .55, 1],
-        ).createShader(Rect.fromCircle(center: center, radius: radius)),
     );
   }
 
   @override
-  bool shouldRepaint(covariant _MoonPhasePainter oldDelegate) =>
-      oldDelegate.image != image || oldDelegate.phase != phase;
+  bool shouldRepaint(covariant _NasaMoonPainter oldDelegate) =>
+      oldDelegate.image != image;
 }
 
 class WeatherProCard extends StatefulWidget {
