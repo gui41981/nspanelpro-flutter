@@ -221,7 +221,7 @@ class _LunarOverlayState extends State<_LunarOverlay> {
             .transform(utf8.decoder)
             .join();
         throw HttpException(
-          'NASA Moon proxy HTTP ${imageResponse.statusCode}: ${errorBody.substring(0, errorBody.length.clamp(0, 240))}',
+          'NASA Moon proxy HTTP ${imageResponse.statusCode}: ${errorBody.substring(0, errorBody.length > 240 ? 240 : errorBody.length)}',
         );
       }
       final imageBytes = await imageResponse.fold<List<int>>(
