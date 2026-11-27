@@ -875,18 +875,6 @@ class _WeatherProCardState extends State<WeatherProCard>
 
         final forecast = _forecastList(s);
 
-        final background = _backgroundUrl(s);
-
-        if (_lastBackgroundUrl != background) {
-          debugPrint(
-            '[WEATHER_BACKGROUND_CHANGE]'
-            ' from="$_lastBackgroundUrl"'
-            ' to="$background"'
-            ' condition="${_condition(s)}"',
-          );
-          _lastBackgroundUrl = background;
-        }
-
         final location = _location(s);
 
         final configuredHeight = c.numOr('height', 0);
@@ -904,15 +892,25 @@ class _WeatherProCardState extends State<WeatherProCard>
                     (weatherCondition == 'sunny' || weatherCondition == 'clear')
                 ? 'clear-night'
                 : weatherCondition;
-            final condition = _conditionLabel(
-              s == null
-                  ? null
-                  : HaState(
-                      entityId: s.entityId,
-                      state: displayCondition,
-                      attributes: s.attributes,
-                    ),
-            );
+            final displayState = s == null
+                ? null
+                : HaState(
+                    entityId: s.entityId,
+                    state: displayCondition,
+                    attributes: s.attributes,
+                  );
+            final condition = _conditionLabel(displayState);
+            final background = _backgroundUrl(displayState);
+
+            if (_lastBackgroundUrl != background) {
+              debugPrint(
+                '[WEATHER_BACKGROUND_CHANGE]'
+                ' from="$_lastBackgroundUrl"'
+                ' to="$background"'
+                ' condition="$displayCondition"',
+              );
+              _lastBackgroundUrl = background;
+            }
 
             return Container(
           height: height,
