@@ -467,10 +467,6 @@ class _WeatherProCardState extends State<WeatherProCard>
     return value?.toString().toLowerCase() ?? '';
   }
 
-  bool _night(HaState? s) {
-    return _condition(s) == 'clear-night';
-  }
-
   String _background(HaState? s) {
     switch (_condition(s)) {
       case 'clear-night':
@@ -879,8 +875,6 @@ class _WeatherProCardState extends State<WeatherProCard>
 
         final condition = _conditionLabel(s);
 
-        final night = _night(s);
-
         final forecast = _forecastList(s);
 
         final background = _backgroundUrl(s);
@@ -903,7 +897,12 @@ class _WeatherProCardState extends State<WeatherProCard>
             ? configuredHeight
             : MediaQuery.sizeOf(context).height;
 
-        return Container(
+        return ValueListenableBuilder<HaState?>(
+          valueListenable: widget.env.states.listen('sun.sun'),
+          builder: (context, sun, _) {
+            final night = sun?.state == 'below_horizon';
+
+            return Container(
           height: height,
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
@@ -1144,6 +1143,8 @@ class _WeatherProCardState extends State<WeatherProCard>
                 ),
             ],
           ),
+            );
+          },
         );
       },
     );
