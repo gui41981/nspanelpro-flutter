@@ -149,6 +149,7 @@ class _WeatherClockState extends State<_WeatherClock> {
 
 /// Decorative lunar overlay used only while the weather entity reports clear-night.
 /// The existing Star.png background is deliberately left untouched.
+// Image lunaire : NASA Goddard Space Flight Center / LROC, via Wikimedia Commons (CC BY 2.0).
 class _LunarOverlay extends StatefulWidget {
   const _LunarOverlay();
 
