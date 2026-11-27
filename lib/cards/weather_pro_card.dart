@@ -221,9 +221,6 @@ class _WeatherProCardState extends State<WeatherProCard>
     if (_disposed) return;
     if (widget.env.conn.status.value == HaStatus.online) {
       _fetchForecast();
-    } else {
-      // The old subscription is invalid after a websocket disconnect.
-      _unsub = null;
     }
   }
 
@@ -246,8 +243,8 @@ class _WeatherProCardState extends State<WeatherProCard>
 
   Future<void> _refreshForecast() => _fetchForecast();
 
-  /// Explicitly request a fresh HA forecast: a subscription alone does not
-  /// guarantee a new calendar payload when the weather state stays unchanged.
+  /// Fetch a complete HA forecast snapshot. Forecast dates and conditions
+  /// are accepted together, never from competing websocket/service streams.
   Future<void> _fetchForecast() async {
     if (_disposed ||
         !c.boolOr('show_forecast', true) ||
