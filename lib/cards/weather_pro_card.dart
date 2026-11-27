@@ -268,7 +268,8 @@ class _MoonPainter extends CustomPainter {
 
     // The displaced dark hemisphere gives the correct waxing/waning terminator.
     final angle = 2 * 3.141592653589793 * phase;
-    final shadowOffset = -math.sin(angle) * (1 - math.cos(angle)) * radius;
+    final shadowDirection = phase < .5 ? -1.0 : 1.0;
+    final shadowOffset = shadowDirection * (1 - math.cos(angle)) * radius;
     canvas.drawCircle(
       center + Offset(shadowOffset, 0),
       radius,
