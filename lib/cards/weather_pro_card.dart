@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -144,6 +145,162 @@ class _WeatherClockState extends State<_WeatherClock> {
       ],
     );
   }
+}
+
+/// Decorative lunar overlay used only while the weather entity reports clear-night.
+/// The existing Star.png background is deliberately left untouched.
+class _LunarOverlay extends StatefulWidget {
+  const _LunarOverlay();
+
+  @override
+  State<_LunarOverlay> createState() => _LunarOverlayState();
+}
+
+class _LunarOverlayState extends State<_LunarOverlay> {
+  late DateTime _now;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _now = DateTime.now().toUtc();
+    _timer = Timer.periodic(const Duration(hours: 1), (_) {
+      if (mounted) setState(() => _now = DateTime.now().toUtc());
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  double get _phase {
+    // Known new moon: 2000-01-06 18:14 UTC.
+    const epoch = 947182440000;
+    const synodicMonth = 29.530588853 * 24 * 60 * 60 * 1000;
+    final elapsed = _now.millisecondsSinceEpoch - epoch;
+    return ((elapsed / synodicMonth) % 1 + 1) % 1;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: SizedBox(
+        width: 108,
+        height: 108,
+        child: CustomPaint(
+          painter: _MoonPainter(_phase),
+        ),
+      ),
+    );
+  }
+}
+
+class _MoonPainter extends CustomPainter {
+  const _MoonPainter(this.phase);
+
+  final double phase;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final radius = size.shortestSide * .39;
+    final center = Offset(size.width / 2, size.height / 2);
+    final bounds = Rect.fromCircle(center: center, radius: radius);
+
+    // Soft halo, kept subtle so the stars in Star.png remain visible.
+    canvas.drawCircle(
+      center,
+      radius * 1.28,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            const Color(0x55DCE8FF),
+            const Color(0x18C8D9FF),
+            const Color(0x00000000),
+          ],
+        ).createShader(Rect.fromCircle(center: center, radius: radius * 1.28)),
+    );
+
+    canvas.save();
+    canvas.clipPath(Path()..addOval(bounds));
+
+    // Lit lunar surface with gentle relief and a few fixed maria/craters.
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-.32, -.38),
+          radius: 1.05,
+          colors: [
+            const Color(0xFFF4F1E8),
+            const Color(0xFFD5D2C9),
+            const Color(0xFF777A80),
+          ],
+          stops: const [0, .58, 1],
+        ).createShader(bounds),
+    );
+
+    final details = <(double, double, double)>[
+      (-.34, -.34, .12),
+      (.16, -.48, .075),
+      (.43, -.12, .10),
+      (-.08, .08, .16),
+      (.32, .38, .13),
+      (-.42, .42, .075),
+      (.02, -.02, .045),
+    ];
+    for (final (x, y, r) in details) {
+      final craterCenter = center + Offset(x * radius, y * radius);
+      final craterRadius = r * radius;
+      canvas.drawCircle(
+        craterCenter,
+        craterRadius,
+        Paint()..color = const Color(0x263A3B40),
+      );
+      canvas.drawCircle(
+        craterCenter - Offset(craterRadius * .16, craterRadius * .18),
+        craterRadius * .72,
+        Paint()..color = const Color(0x35FFFFFF),
+      );
+    }
+
+    // The displaced dark hemisphere gives the correct waxing/waning terminator.
+    final angle = 2 * 3.141592653589793 * phase;
+    final shadowOffset = -math.sin(angle) * (1 - math.cos(angle)) * radius;
+    canvas.drawCircle(
+      center + Offset(shadowOffset, 0),
+      radius,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-.15, -.1),
+          radius: 1.15,
+          colors: [
+            const Color(0xFF171B27),
+            const Color(0xFF090D18),
+          ],
+        ).createShader(
+          Rect.fromCircle(center: center + Offset(shadowOffset, 0), radius: radius),
+        ),
+    );
+
+    canvas.restore();
+
+    // Fine rim separates the lunar disc from the night sky.
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = const Color(0x66FFFFFF),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _MoonPainter oldDelegate) =>
+      oldDelegate.phase != phase;
 }
 
 class WeatherProCard extends StatefulWidget {
@@ -796,6 +953,13 @@ class _WeatherProCardState extends State<WeatherProCard>
                   ),
                 ),
               ),
+
+              if (night && !broken)
+                const Positioned(
+                  top: 104,
+                  right: 184,
+                  child: _LunarOverlay(),
+                ),
 
               if (broken)
                 const Positioned.fill(
