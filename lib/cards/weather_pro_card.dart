@@ -873,8 +873,6 @@ class _WeatherProCardState extends State<WeatherProCard>
 
         final windUnit = s?.attr<String>('wind_speed_unit') ?? '';
 
-        final condition = _conditionLabel(s);
-
         final forecast = _forecastList(s);
 
         final background = _backgroundUrl(s);
@@ -901,6 +899,20 @@ class _WeatherProCardState extends State<WeatherProCard>
           valueListenable: widget.env.states.listen('sun.sun'),
           builder: (context, sun, _) {
             final night = sun?.state == 'below_horizon';
+            final weatherCondition = _condition(s);
+            final displayCondition = night &&
+                    (weatherCondition == 'sunny' || weatherCondition == 'clear')
+                ? 'clear-night'
+                : weatherCondition;
+            final condition = _conditionLabel(
+              s == null
+                  ? null
+                  : HaState(
+                      entityId: s.entityId,
+                      state: displayCondition,
+                      attributes: s.attributes,
+                    ),
+            );
 
             return Container(
           height: height,
@@ -1102,7 +1114,7 @@ class _WeatherProCardState extends State<WeatherProCard>
                               ],
                             ),
                           ),
-                          _weatherIcon(_condition(s), size: 110),
+                          _weatherIcon(displayCondition, size: 110),
                         ],
                       ),
 
