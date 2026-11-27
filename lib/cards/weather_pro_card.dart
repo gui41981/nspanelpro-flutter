@@ -150,7 +150,7 @@ class _WeatherClockState extends State<_WeatherClock> {
   }
 }
 
-/// NASA SVS Moon Phases Loop: one pre-rendered frame per lunar day.
+/// Loads the Moon image published for the current local day by Moonphases.co.uk.
 class _LunarOverlay extends StatefulWidget {
   const _LunarOverlay();
 
@@ -159,63 +159,55 @@ class _LunarOverlay extends StatefulWidget {
 }
 
 class _LunarOverlayState extends State<_LunarOverlay> {
-  late final Future<ui.Image> _moonImage;
+  late final Future<_MoonOfDay> _moon = _loadMoonOfDay();
 
-  @override
-  void initState() {
-    super.initState();
-    _moonImage = _loadMoonFrame();
-  }
+  Future<_MoonOfDay> _loadMoonOfDay() async {
+    final now = DateTime.now();
+    final uri = Uri.https(
+      'moonphases.co.uk',
+      '/service/getMoonDetails.php',
+      {
+        'day': now.day.toString(),
+        'month': now.month.toString(),
+        'year': now.year.toString(),
+        // Puteaux, matching the weather.puteaux entity used by this panel.
+        'lat': '48.884',
+        'lng': '2.238',
+        'len': '1',
+      },
+    );
 
-  Future<ui.Image> _loadMoonFrame() async {
-    final now = DateTime.now().toUtc();
-    double age;
-
-    // NASA's API supplies the current lunar age. Only its small JSON response
-    // is requested; the actual Moon image is bundled locally, avoiding the
-    // 403 returned by the NASA frame host on the NSPanel.
-    final client = HttpClient()
-      ..userAgent = 'nspanelpro-flutter';
+    final client = HttpClient()..userAgent = 'nspanelpro-flutter';
     try {
-      final stamp = '${now.year.toString().padLeft(4, '0')}-'
-          '${now.month.toString().padLeft(2, '0')}-'
-          '${now.day.toString().padLeft(2, '0')}T'
-          '${now.hour.toString().padLeft(2, '0')}:00';
-      final request = await client.getUrl(
-        Uri.parse('https://svs.gsfc.nasa.gov/api/dialamoon/$stamp'),
-      );
+      final request = await client.getUrl(uri);
       final response = await request.close().timeout(
         const Duration(seconds: 8),
       );
       if (response.statusCode != HttpStatus.ok) {
-        throw HttpException('NASA lunar data HTTP ${response.statusCode}');
+        throw HttpException('Moonphases HTTP ${response.statusCode}');
       }
       final bytes = await response.fold<List<int>>(
         <int>[],
         (buffer, chunk) => buffer..addAll(chunk),
       );
       final payload = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
-      age = (payload['age'] as num).toDouble();
-    } catch (error) {
-      // Offline fallback: mean synodic month, anchored to a known new moon.
-      const synodicMonth = 29.530588853;
-      final knownNewMoon = DateTime.utc(2000, 1, 6, 18, 14);
-      age = (now.difference(knownNewMoon).inSeconds / 86400) % synodicMonth;
-      debugPrint('[NASA_MOON_DATA_FALLBACK] $error');
+      final days = payload['days'] as List<dynamic>;
+      if (days.isEmpty || days.first is! Map) {
+        throw const FormatException('Moonphases returned no image for today');
+      }
+      final day = days.first as Map;
+      final imageName = day['phase_img']?.toString();
+      if (imageName == null || imageName.isEmpty || imageName.contains('/')) {
+        throw const FormatException('Moonphases returned an invalid image name');
+      }
+      final tilt = (day['tilt'] as num?)?.toDouble() ?? 0;
+      return _MoonOfDay(
+        Uri.https('moonphases.co.uk', '/images/moons/$imageName').toString(),
+        tilt,
+      );
     } finally {
       client.close(force: true);
     }
-
-    // NASA SVS 4310 has 236 frames at 3-hour intervals:
-    // frame = (lunar age in days * 8) + 1. Bundle one frame per day.
-    final day = age.round().clamp(0, 29).toInt();
-    final asset = await rootBundle.load(
-      'assets/weather/moon/moon_${day.toString().padLeft(2, '0')}.jpg',
-    );
-    final codec = await ui.instantiateImageCodec(asset.buffer.asUint8List());
-    final frame = await codec.getNextFrame();
-    codec.dispose();
-    return frame.image;
   }
 
   @override
@@ -225,17 +217,30 @@ class _LunarOverlayState extends State<_LunarOverlay> {
       child: SizedBox(
         width: size,
         height: size,
-        child: FutureBuilder<ui.Image>(
-          future: _moonImage,
+        child: FutureBuilder<_MoonOfDay>(
+          future: _moon,
           builder: (context, snapshot) {
-            final image = snapshot.data;
-            if (image == null) {
+            final moon = snapshot.data;
+            if (moon == null) {
               if (snapshot.hasError) {
-                debugPrint('[NASA_MOON_ERROR] ${snapshot.error}');
+                debugPrint('[MOONPHASES_ERROR] ${snapshot.error}');
               }
               return const SizedBox.expand();
             }
-            return CustomPaint(painter: _NasaMoonPainter(image));
+            return Transform.rotate(
+              angle: moon.tilt * 3.141592653589793 / 180,
+              child: Image.network(
+                moon.imageUrl,
+                width: size,
+                height: size,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
+                errorBuilder: (context, error, stack) {
+                  debugPrint('[MOONPHASES_IMAGE_ERROR] $error');
+                  return const SizedBox.expand();
+                },
+              ),
+            );
           },
         ),
       ),
@@ -243,34 +248,11 @@ class _LunarOverlayState extends State<_LunarOverlay> {
   }
 }
 
-class _NasaMoonPainter extends CustomPainter {
-  const _NasaMoonPainter(this.image);
+class _MoonOfDay {
+  const _MoonOfDay(this.imageUrl, this.tilt);
 
-  final ui.Image image;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final src = Rect.fromLTWH(
-      0,
-      0,
-      image.width.toDouble(),
-      image.height.toDouble(),
-    );
-    canvas.drawImageRect(
-      image,
-      src,
-      Offset.zero & size,
-      Paint()
-        // The source has a black surround. Screen removes it over the
-        // existing weather background without drawing a fake lunar disc.
-        ..blendMode = BlendMode.screen
-        ..filterQuality = FilterQuality.high,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _NasaMoonPainter oldDelegate) =>
-      oldDelegate.image != image;
+  final String imageUrl;
+  final double tilt;
 }
 
 class WeatherProCard extends StatefulWidget {
