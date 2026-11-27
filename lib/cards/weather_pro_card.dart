@@ -162,12 +162,12 @@ class _LunarOverlayState extends State<_LunarOverlay> {
   @override
   void initState() {
     super.initState();
-    // Calculate once when the overlay is created at the start of the night.
+    // Calculée une seule fois à la création de l'overlay, au début de la nuit.
     _phase = _lunarPhase(DateTime.now().toUtc());
   }
 
   double _lunarPhase(DateTime now) {
-    // Known new moon: 2000-01-06 18:14 UTC.
+    // Nouvelle lune connue : 2000-01-06 18:14 UTC.
     const epoch = 947182440000;
     const synodicMonth = 29.530588853 * 24 * 60 * 60 * 1000;
     final elapsed = now.millisecondsSinceEpoch - epoch;
@@ -176,122 +176,82 @@ class _LunarOverlayState extends State<_LunarOverlay> {
 
   @override
   Widget build(BuildContext context) {
+    const size = 324.0; // diamètre lunaire environ 3 fois supérieur à l'ancien.
     return IgnorePointer(
       child: SizedBox(
-        width: 108,
-        height: 108,
-        child: CustomPaint(
-          painter: _MoonPainter(_phase),
+        width: size,
+        height: size,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ClipOval(
+              child: Image.asset(
+                'assets/weather/animated/moon.jpg',
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.high,
+              ),
+            ),
+            CustomPaint(
+              painter: _MoonPhasePainter(_phase),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _MoonPainter extends CustomPainter {
-  const _MoonPainter(this.phase);
+class _MoonPhasePainter extends CustomPainter {
+  const _MoonPhasePainter(this.phase);
 
   final double phase;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final radius = size.shortestSide * .39;
+    final radius = size.shortestSide * .5;
     final center = Offset(size.width / 2, size.height / 2);
     final bounds = Rect.fromCircle(center: center, radius: radius);
-
-    // Soft halo, kept subtle so the stars in Star.png remain visible.
-    canvas.drawCircle(
-      center,
-      radius * 1.28,
-      Paint()
-        ..shader = RadialGradient(
-          colors: [
-            const Color(0x55DCE8FF),
-            const Color(0x18C8D9FF),
-            const Color(0x00000000),
-          ],
-        ).createShader(Rect.fromCircle(center: center, radius: radius * 1.28)),
-    );
 
     canvas.save();
     canvas.clipPath(Path()..addOval(bounds));
 
-    // Lit lunar surface with gentle relief and a few fixed maria/craters.
-    canvas.drawCircle(
-      center,
-      radius,
-      Paint()
-        ..shader = RadialGradient(
-          center: const Alignment(-.32, -.38),
-          radius: 1.05,
-          colors: [
-            const Color(0xFFF4F1E8),
-            const Color(0xFFD5D2C9),
-            const Color(0xFF777A80),
-          ],
-          stops: const [0, .58, 1],
-        ).createShader(bounds),
-    );
-
-    final details = <(double, double, double)>[
-      (-.34, -.34, .12),
-      (.16, -.48, .075),
-      (.43, -.12, .10),
-      (-.08, .08, .16),
-      (.32, .38, .13),
-      (-.42, .42, .075),
-      (.02, -.02, .045),
-    ];
-    for (final (x, y, r) in details) {
-      final craterCenter = center + Offset(x * radius, y * radius);
-      final craterRadius = r * radius;
-      canvas.drawCircle(
-        craterCenter,
-        craterRadius,
-        Paint()..color = const Color(0x263A3B40),
-      );
-      canvas.drawCircle(
-        craterCenter - Offset(craterRadius * .16, craterRadius * .18),
-        craterRadius * .72,
-        Paint()..color = const Color(0x35FFFFFF),
-      );
-    }
-
-    // The displaced dark hemisphere gives the correct waxing/waning terminator.
-    final angle = 2 * 3.141592653589793 * phase;
+    // Masque la partie non éclairée de la vraie photographie lunaire.
+    final angle = 2 * math.pi * phase;
     final shadowDirection = phase < .5 ? -1.0 : 1.0;
     final shadowOffset = shadowDirection * (1 - math.cos(angle)) * radius;
+    final shadowCenter = center + Offset(shadowOffset, 0);
+
     canvas.drawCircle(
-      center + Offset(shadowOffset, 0),
+      shadowCenter,
       radius,
       Paint()
         ..shader = RadialGradient(
-          center: const Alignment(-.15, -.1),
-          radius: 1.15,
-          colors: [
-            const Color(0xFF171B27),
-            const Color(0xFF090D18),
+          center: const Alignment(-.12, -.08),
+          radius: 1.08,
+          colors: const [
+            Color(0xFF080B13),
+            Color(0xFF111722),
           ],
         ).createShader(
-          Rect.fromCircle(center: center + Offset(shadowOffset, 0), radius: radius),
+          Rect.fromCircle(center: shadowCenter, radius: radius),
         ),
     );
 
     canvas.restore();
 
-    // Fine rim separates the lunar disc from the night sky.
+    // Fin liseré pour détacher le disque du ciel nocturne.
     canvas.drawCircle(
       center,
-      radius,
+      radius - .5,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1
-        ..color = const Color(0x66FFFFFF),
+        ..color = const Color(0x55FFFFFF),
     );
   }
 
   @override
-  bool shouldRepaint(covariant _MoonPainter oldDelegate) =>
+  bool shouldRepaint(covariant _MoonPhasePainter oldDelegate) =>
       oldDelegate.phase != phase;
 }
 
