@@ -166,13 +166,11 @@ class _WeatherProCardState extends State<WeatherProCard>
 
   List<dynamic>? _forecast;
 
-  Future<void> Function()? _unsub;
-  int? _subscribedGeneration;
-  int? _subscribingGeneration;
   bool _disposed = false;
   bool _fetching = false;
   bool _refreshPending = false;
   Timer? _dailyRefresh;
+  Timer? _periodicRefresh;
 
   final Map<String, ImageProvider> _imageProviders = <String, ImageProvider>{};
 
@@ -185,6 +183,10 @@ class _WeatherProCardState extends State<WeatherProCard>
     widget.env.conn.status.addListener(_onConnectionStatus);
     _onConnectionStatus();
     _armDailyRefresh();
+    _periodicRefresh = Timer.periodic(
+      const Duration(minutes: 30),
+      (_) => _fetchForecast(),
+    );
   }
 
   @override
@@ -194,16 +196,13 @@ class _WeatherProCardState extends State<WeatherProCard>
     widget.env.conn.generationListenable.removeListener(_onGenerationChanged);
     widget.env.conn.status.removeListener(_onConnectionStatus);
     _dailyRefresh?.cancel();
-    _unsub?.call();
+    _periodicRefresh?.cancel();
     _imageProviders.clear();
     super.dispose();
   }
 
   void _onGenerationChanged() {
-    // Subscriptions belong to the old socket and are already gone. Do not
-    // send an unsubscribe on the newly established connection.
-    _unsub = null;
-    _subscribedGeneration = null;
+    // Discard any response started on the previous websocket generation.
     _onConnectionStatus();
   }
 
@@ -221,7 +220,6 @@ class _WeatherProCardState extends State<WeatherProCard>
   void _onConnectionStatus() {
     if (_disposed) return;
     if (widget.env.conn.status.value == HaStatus.online) {
-      _maybeSubscribe();
       _fetchForecast();
     } else {
       // The old subscription is invalid after a websocket disconnect.
@@ -262,8 +260,10 @@ class _WeatherProCardState extends State<WeatherProCard>
     }
 
     _fetching = true;
+    final conn = widget.env.conn;
+    final generation = conn.generation;
     try {
-      final result = await widget.env.conn.send({
+      final result = await conn.send({
         'type': 'call_service',
         'domain': 'weather',
         'service': 'get_forecasts',
@@ -273,14 +273,32 @@ class _WeatherProCardState extends State<WeatherProCard>
         },
         'return_response': true,
       });
-      if (!mounted || result is! Map) return;
+      if (!mounted ||
+          _disposed ||
+          conn.generation != generation ||
+          result is! Map) {
+        return;
+      }
       final response = result['response'];
       if (response is! Map) return;
       final weather = response[entity];
       if (weather is! Map) return;
       final forecast = weather['forecast'];
-      if (forecast is List) {
-        setState(() => _forecast = forecast);
+      if (forecast is List && forecast.isNotEmpty) {
+        // Keep each date and its condition/temperatures in the same record.
+        // A single service response replaces the complete displayed snapshot.
+        final snapshot = forecast
+            .where((entry) =>
+                entry is Map &&
+                DateTime.tryParse(entry['datetime']?.toString() ?? '') != null &&
+                (entry['condition']?.toString().trim().isNotEmpty ?? false))
+            .map((entry) => Map<String, dynamic>.from(entry as Map))
+            .toList()
+          ..sort((a, b) => DateTime.parse(a['datetime'].toString())
+              .compareTo(DateTime.parse(b['datetime'].toString())));
+        if (snapshot.isNotEmpty && mounted && !_disposed) {
+          setState(() => _forecast = snapshot);
+        }
       }
     } catch (e) {
       // Retain the last valid forecast if HA is temporarily unavailable.
@@ -290,65 +308,6 @@ class _WeatherProCardState extends State<WeatherProCard>
       if (_refreshPending && !_disposed) {
         _refreshPending = false;
         scheduleMicrotask(_fetchForecast);
-      }
-    }
-  }
-
-  Future<void> _maybeSubscribe() async {
-    if (!c.boolOr('show_forecast', true)) {
-      return;
-    }
-
-    final conn = widget.env.conn;
-    final generation = conn.generation;
-
-    // Wait until _seed has completed, not merely until auth_ok arrives.
-    if (conn.status.value != HaStatus.online || generation == 0) {
-      return;
-    }
-
-    if (_subscribedGeneration == generation ||
-        _subscribingGeneration == generation) {
-      return;
-    }
-
-    _subscribingGeneration = generation;
-
-    try {
-      final unsubscribe = await conn.subscribe(
-        {
-          'type': 'weather/subscribe_forecast',
-          'forecast_type': c.str('forecast_type') ?? 'daily',
-          'entity_id': entity,
-        },
-        (ev) {
-          if (!mounted || conn.generation != generation) {
-            return;
-          }
-
-          final forecast = (ev as Map?)?['forecast'] as List? ?? const [];
-
-          setState(() {
-            _forecast = forecast;
-          });
-        },
-      );
-
-      // The socket may have changed while the subscription was pending.
-      if (!mounted ||
-          conn.generation != generation ||
-          conn.status.value != HaStatus.online) {
-        await unsubscribe();
-        return;
-      }
-
-      _unsub = unsubscribe;
-      _subscribedGeneration = generation;
-    } catch (_) {
-      // Forecast subscription is optional.
-    } finally {
-      if (_subscribingGeneration == generation) {
-        _subscribingGeneration = null;
       }
     }
   }
