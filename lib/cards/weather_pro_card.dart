@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../config/dashboard.dart';
 import '../ha/states.dart';
@@ -150,8 +150,7 @@ class _WeatherClockState extends State<_WeatherClock> {
   }
 }
 
-/// NASA Dial-A-Moon overlay, created once when the night begins.
-/// The returned NASA image already contains the real lunar phase and terminator.
+/// NASA SVS Moon Phases Loop: one pre-rendered frame per lunar day.
 class _LunarOverlay extends StatefulWidget {
   const _LunarOverlay();
 
@@ -165,59 +164,58 @@ class _LunarOverlayState extends State<_LunarOverlay> {
   @override
   void initState() {
     super.initState();
-    _moonImage = _loadNasaMoon();
+    _moonImage = _loadMoonFrame();
   }
 
-  Future<ui.Image> _loadNasaMoon() async {
+  Future<ui.Image> _loadMoonFrame() async {
     final now = DateTime.now().toUtc();
-    final stamp = '${now.year.toString().padLeft(4, '0')}-'
-        '${now.month.toString().padLeft(2, '0')}-'
-        '${now.day.toString().padLeft(2, '0')}T'
-        '${now.hour.toString().padLeft(2, '0')}:'
-        '${now.minute.toString().padLeft(2, '0')}';
+    double age;
+
+    // NASA's API supplies the current lunar age. Only its small JSON response
+    // is requested; the actual Moon image is bundled locally, avoiding the
+    // 403 returned by the NASA frame host on the NSPanel.
     final client = HttpClient()
-      ..userAgent = 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36';
+      ..userAgent = 'nspanelpro-flutter';
     try {
-      final apiRequest = await client.getUrl(
+      final stamp = '${now.year.toString().padLeft(4, '0')}-'
+          '${now.month.toString().padLeft(2, '0')}-'
+          '${now.day.toString().padLeft(2, '0')}T'
+          '${now.hour.toString().padLeft(2, '0')}:00';
+      final request = await client.getUrl(
         Uri.parse('https://svs.gsfc.nasa.gov/api/dialamoon/$stamp'),
       );
-      apiRequest.headers.set(HttpHeaders.refererHeader, 'https://svs.gsfc.nasa.gov/');
-      apiRequest.headers.set(HttpHeaders.acceptHeader, 'application/json,text/plain,*/*');
-      final apiResponse = await apiRequest.close().timeout(
-        const Duration(seconds: 20),
+      final response = await request.close().timeout(
+        const Duration(seconds: 8),
       );
-      if (apiResponse.statusCode != HttpStatus.ok) {
-        throw HttpException('NASA Dial-A-Moon HTTP ${apiResponse.statusCode}');
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException('NASA lunar data HTTP ${response.statusCode}');
       }
-      final apiBytes = await apiResponse.fold<List<int>>(
+      final bytes = await response.fold<List<int>>(
         <int>[],
         (buffer, chunk) => buffer..addAll(chunk),
       );
-      final payload = jsonDecode(utf8.decode(apiBytes)) as Map<String, dynamic>;
-      final imageUrl = (payload['image'] as Map<String, dynamic>)['url'] as String;
-
-      final imageRequest = await client.getUrl(Uri.parse(imageUrl));
-      imageRequest.headers.set(HttpHeaders.refererHeader, 'https://svs.gsfc.nasa.gov/');
-      imageRequest.headers.set(HttpHeaders.acceptHeader, 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8');
-      final imageResponse = await imageRequest.close().timeout(
-        const Duration(seconds: 30),
-      );
-      if (imageResponse.statusCode != HttpStatus.ok) {
-        throw HttpException('NASA Moon image HTTP ${imageResponse.statusCode}');
-      }
-      final imageBytes = await imageResponse.fold<List<int>>(
-        <int>[],
-        (buffer, chunk) => buffer..addAll(chunk),
-      );
-      final codec = await ui.instantiateImageCodec(
-        Uint8List.fromList(imageBytes),
-      );
-      final frame = await codec.getNextFrame();
-      codec.dispose();
-      return frame.image;
+      final payload = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+      age = (payload['age'] as num).toDouble();
+    } catch (error) {
+      // Offline fallback: mean synodic month, anchored to a known new moon.
+      const synodicMonth = 29.530588853;
+      final knownNewMoon = DateTime.utc(2000, 1, 6, 18, 14);
+      age = (now.difference(knownNewMoon).inSeconds / 86400) % synodicMonth;
+      debugPrint('[NASA_MOON_DATA_FALLBACK] $error');
     } finally {
       client.close(force: true);
     }
+
+    // NASA SVS 4310 has 236 frames at 3-hour intervals:
+    // frame = (lunar age in days * 8) + 1. Bundle one frame per day.
+    final day = age.round().clamp(0, 29).toInt();
+    final asset = await rootBundle.load(
+      'assets/weather/moon/moon_${day.toString().padLeft(2, '0')}.jpg',
+    );
+    final codec = await ui.instantiateImageCodec(asset.buffer.asUint8List());
+    final frame = await codec.getNextFrame();
+    codec.dispose();
+    return frame.image;
   }
 
   @override
@@ -263,8 +261,8 @@ class _NasaMoonPainter extends CustomPainter {
       src,
       Offset.zero & size,
       Paint()
-        // NASA's JPEG has a black surround; screen removes it against the
-        // existing weather background without drawing an artificial disc.
+        // The source has a black surround. Screen removes it over the
+        // existing weather background without drawing a fake lunar disc.
         ..blendMode = BlendMode.screen
         ..filterQuality = FilterQuality.high,
     );
