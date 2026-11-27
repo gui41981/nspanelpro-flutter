@@ -186,10 +186,13 @@ class _LunarOverlayState extends State<_LunarOverlay> {
           fit: StackFit.expand,
           children: [
             ClipOval(
-              child: Image.asset(
-                'assets/weather/animated/moon.jpg',
-                fit: BoxFit.cover,
-                filterQuality: FilterQuality.high,
+              child: Transform.scale(
+                scale: 1.18,
+                child: Image.asset(
+                  'assets/weather/animated/moon.jpg',
+                  fit: BoxFit.cover,
+                  filterQuality: FilterQuality.high,
+                ),
               ),
             ),
             CustomPaint(
@@ -925,7 +928,7 @@ class _WeatherProCardState extends State<WeatherProCard>
               if (night && !broken)
                 const Positioned(
                   top: 104,
-                  right: 184,
+                  right: 76,
                   child: _LunarOverlay(),
                 ),
 
