@@ -196,14 +196,33 @@ class _LunarOverlayState extends State<_LunarOverlay> {
       final payload = jsonDecode(utf8.decode(apiBytes)) as Map<String, dynamic>;
       final imageUrl = (payload['image'] as Map<String, dynamic>)['url'] as String;
 
-      final imageRequest = await client.getUrl(Uri.parse(imageUrl));
-      imageRequest.headers.set(HttpHeaders.refererHeader, 'https://svs.gsfc.nasa.gov/');
-      imageRequest.headers.set(HttpHeaders.acceptHeader, 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8');
+      // NASA's SVS image host can reject direct requests from embedded
+      // Android clients (403). Fetch through the public image cache proxy,
+      // which retrieves the official NASA image server-side.
+      final sourceUri = Uri.parse(imageUrl);
+      final proxyUri = Uri.https(
+        'images.weserv.nl',
+        '/',
+        {
+          'url': 'ssl:${sourceUri.host}${sourceUri.path}',
+          'w': '730',
+          'h': '730',
+          'fit': 'contain',
+          'output': 'jpg',
+        },
+      );
+      final imageRequest = await client.getUrl(proxyUri);
+      imageRequest.headers.set(HttpHeaders.acceptHeader, 'image/avif,image/webp,image/*,*/*;q=0.8');
       final imageResponse = await imageRequest.close().timeout(
-        const Duration(seconds: 30),
+        const Duration(seconds: 40),
       );
       if (imageResponse.statusCode != HttpStatus.ok) {
-        throw HttpException('NASA Moon image HTTP ${imageResponse.statusCode}');
+        final errorBody = await imageResponse
+            .transform(utf8.decoder)
+            .join();
+        throw HttpException(
+          'NASA Moon proxy HTTP ${imageResponse.statusCode}: ${errorBody.substring(0, errorBody.length.clamp(0, 240))}',
+        );
       }
       final imageBytes = await imageResponse.fold<List<int>>(
         <int>[],
