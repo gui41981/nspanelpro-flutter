@@ -12,11 +12,12 @@ import 'light_control.dart';
 
 const _daysShort = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
-/// Map Home Assistant conditions to the nine animated WebP assets in the
+/// Map Home Assistant conditions to the animated WebP assets in the
 /// original icon pack. Conditions without a matching illustration keep MDI.
 const _animatedWeatherAssets = <String, String>{
   'sunny': 'sunny',
   'clear': 'sunny',
+  'clear-night': 'clear-night',
   'partlycloudy': 'partly-cloudy',
   'cloudy': 'cloudy',
   'fog': 'foggy',
