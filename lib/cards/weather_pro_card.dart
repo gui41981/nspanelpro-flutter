@@ -175,11 +175,14 @@ class _LunarOverlayState extends State<_LunarOverlay> {
         '${now.day.toString().padLeft(2, '0')}T'
         '${now.hour.toString().padLeft(2, '0')}:'
         '${now.minute.toString().padLeft(2, '0')}';
-    final client = HttpClient();
+    final client = HttpClient()
+      ..userAgent = 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36';
     try {
       final apiRequest = await client.getUrl(
         Uri.parse('https://svs.gsfc.nasa.gov/api/dialamoon/$stamp'),
       );
+      apiRequest.headers.set(HttpHeaders.refererHeader, 'https://svs.gsfc.nasa.gov/');
+      apiRequest.headers.set(HttpHeaders.acceptHeader, 'application/json,text/plain,*/*');
       final apiResponse = await apiRequest.close().timeout(
         const Duration(seconds: 20),
       );
@@ -194,6 +197,8 @@ class _LunarOverlayState extends State<_LunarOverlay> {
       final imageUrl = (payload['image'] as Map<String, dynamic>)['url'] as String;
 
       final imageRequest = await client.getUrl(Uri.parse(imageUrl));
+      imageRequest.headers.set(HttpHeaders.refererHeader, 'https://svs.gsfc.nasa.gov/');
+      imageRequest.headers.set(HttpHeaders.acceptHeader, 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8');
       final imageResponse = await imageRequest.close().timeout(
         const Duration(seconds: 30),
       );
