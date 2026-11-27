@@ -212,64 +212,58 @@ class _MoonPhasePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final radius = size.shortestSide * .5;
     final center = Offset(size.width / 2, size.height / 2);
-    final moonBounds = Rect.fromCircle(center: center, radius: radius);
-
-    canvas.save();
-    canvas.clipPath(Path()..addOval(moonBounds));
-
-    // Géométrie de phase : le terminateur est l'intersection de deux disques.
-    // On assombrit la photo, on ne dessine jamais un disque noir opaque.
+    final bounds = Rect.fromCircle(center: center, radius: radius);
     final angle = 2 * math.pi * phase;
-    final direction = phase < .5 ? -1.0 : 1.0;
-    final offset = direction * (1 - math.cos(angle)) * radius;
-    final shadowCenter = center + Offset(offset, 0);
+    final waxing = math.sin(angle) >= 0;
+    final terminatorX = math.cos(angle) * radius;
 
-    // Légère pénombre autour du terminateur pour éviter une coupure artificielle.
-    canvas.drawCircle(
-      shadowCenter,
-      radius,
-      Paint()
-        ..color = const Color(0x26000000)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.2),
-    );
+    // Silhouette de la partie non éclairée : un seul contour lunaire,
+    // puis un terminateur courbe. Aucun second disque superposé.
+    final shadow = Path();
+    if (waxing) {
+      shadow
+        ..moveTo(center.dx, center.dy - radius)
+        ..arcTo(bounds, -math.pi / 2, -math.pi, false)
+        ..cubicTo(
+          center.dx + terminatorX,
+          center.dy + radius * .55,
+          center.dx + terminatorX,
+          center.dy - radius * .55,
+          center.dx,
+          center.dy - radius,
+        );
+    } else {
+      shadow
+        ..moveTo(center.dx, center.dy - radius)
+        ..arcTo(bounds, -math.pi / 2, math.pi, false)
+        ..cubicTo(
+          center.dx - terminatorX,
+          center.dy + radius * .55,
+          center.dx - terminatorX,
+          center.dy - radius * .55,
+          center.dx,
+          center.dy - radius,
+        );
+    }
+    shadow.close();
 
-    // Ombre translucide et modelée : le relief photographique reste visible.
-    canvas.drawCircle(
-      shadowCenter,
-      radius,
+    // Assombrissement translucide limité à la vraie zone nocturne :
+    // les cratères et le relief de la photographie restent visibles.
+    canvas.drawPath(
+      shadow,
       Paint()
         ..shader = RadialGradient(
-          center: const Alignment(-.18, -.12),
-          radius: 1.12,
+          center: waxing
+              ? const Alignment(.55, 0)
+              : const Alignment(-.55, 0),
+          radius: 1.15,
           colors: const [
-            Color(0xD9000000),
             Color(0xB8000000),
-            Color(0x8C000000),
+            Color(0x88000000),
+            Color(0x66000000),
           ],
-          stops: const [0, .68, 1],
-        ).createShader(
-          Rect.fromCircle(center: shadowCenter, radius: radius),
-        ),
-    );
-
-    // Très légère lumière rasante au bord du terminateur.
-    final terminatorPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5
-      ..color = const Color(0x22E5E9F2)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.0);
-    canvas.drawCircle(shadowCenter, radius, terminatorPaint);
-
-    canvas.restore();
-
-    // Contour discret du vrai disque, centré sur l'image.
-    canvas.drawCircle(
-      center,
-      radius - .7,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2
-        ..color = const Color(0x44FFFFFF),
+          stops: const [0, .72, 1],
+        ).createShader(bounds),
     );
   }
 
