@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -211,58 +212,72 @@ class _MoonPhasePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final radius = size.shortestSide * .5;
     final center = Offset(size.width / 2, size.height / 2);
-    final bounds = Rect.fromCircle(center: center, radius: radius);
     final angle = 2 * math.pi * phase;
     final waxing = math.sin(angle) >= 0;
-    final terminatorX = math.cos(angle) * radius;
+    // Projection orthographique de la limite jour/nuit sur le disque :
+    // l'ellipse du terminateur s'ouvre ou se referme selon la phase.
+    final terminatorRadius = (waxing ? 1.0 : -1.0) *
+        math.cos(angle) * radius;
+    const k = 0.5522847498;
 
-    // Silhouette de la partie non éclairée : un seul contour lunaire,
-    // puis un terminateur courbe. Aucun second disque superposé.
-    final shadow = Path();
+    final shadow = Path()..moveTo(center.dx, center.dy - radius);
     if (waxing) {
+      // Partie sombre à gauche : contour lunaire gauche, puis terminateur.
       shadow
-        ..moveTo(center.dx, center.dy - radius)
-        ..arcTo(bounds, -math.pi / 2, -math.pi, false)
         ..cubicTo(
-          center.dx + terminatorX,
-          center.dy + radius * .55,
-          center.dx + terminatorX,
-          center.dy - radius * .55,
+          center.dx - k * radius,
+          center.dy - radius,
+          center.dx - k * radius,
+          center.dy + radius,
+          center.dx,
+          center.dy + radius,
+        )
+        ..cubicTo(
+          center.dx + k * terminatorRadius,
+          center.dy + radius,
+          center.dx + k * terminatorRadius,
+          center.dy - radius,
           center.dx,
           center.dy - radius,
         );
     } else {
+      // Partie sombre à droite.
       shadow
-        ..moveTo(center.dx, center.dy - radius)
-        ..arcTo(bounds, -math.pi / 2, math.pi, false)
         ..cubicTo(
-          center.dx - terminatorX,
-          center.dy + radius * .55,
-          center.dx - terminatorX,
-          center.dy - radius * .55,
+          center.dx + k * radius,
+          center.dy - radius,
+          center.dx + k * radius,
+          center.dy + radius,
+          center.dx,
+          center.dy + radius,
+        )
+        ..cubicTo(
+          center.dx + k * terminatorRadius,
+          center.dy + radius,
+          center.dx + k * terminatorRadius,
+          center.dy - radius,
           center.dx,
           center.dy - radius,
         );
     }
     shadow.close();
 
-    // Assombrissement translucide limité à la vraie zone nocturne :
-    // les cratères et le relief de la photographie restent visibles.
+    // Ombre douce et translucide, confinée à la face non éclairée.
+    // Aucun disque supplémentaire, aucun contour ni halo artificiel.
+    final shadowRect = Rect.fromCircle(center: center, radius: radius);
     canvas.drawPath(
       shadow,
       Paint()
-        ..shader = RadialGradient(
-          center: waxing
-              ? const Alignment(.55, 0)
-              : const Alignment(-.55, 0),
-          radius: 1.15,
+        ..shader = LinearGradient(
+          begin: waxing ? Alignment.centerLeft : Alignment.centerRight,
+          end: waxing ? Alignment.centerRight : Alignment.centerLeft,
           colors: const [
-            Color(0xB8000000),
-            Color(0x88000000),
-            Color(0x66000000),
+            Color(0xA8000000),
+            Color(0x92000000),
+            Color(0x76000000),
           ],
-          stops: const [0, .72, 1],
-        ).createShader(bounds),
+          stops: const [0, .55, 1],
+        ).createShader(shadowRect),
     );
   }
 
