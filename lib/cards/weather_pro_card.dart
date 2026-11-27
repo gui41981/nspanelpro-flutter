@@ -186,13 +186,11 @@ class _LunarOverlayState extends State<_LunarOverlay> {
           fit: StackFit.expand,
           children: [
             ClipOval(
-              child: Transform.scale(
-                scale: 1.18,
-                child: Image.asset(
-                  'assets/weather/animated/moon.jpg',
-                  fit: BoxFit.cover,
-                  filterQuality: FilterQuality.high,
-                ),
+              child: Image.asset(
+                'assets/weather/animated/moon.jpg',
+                alignment: Alignment.center,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
               ),
             ),
             CustomPaint(
@@ -214,43 +212,64 @@ class _MoonPhasePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final radius = size.shortestSide * .5;
     final center = Offset(size.width / 2, size.height / 2);
-    final bounds = Rect.fromCircle(center: center, radius: radius);
+    final moonBounds = Rect.fromCircle(center: center, radius: radius);
 
     canvas.save();
-    canvas.clipPath(Path()..addOval(bounds));
+    canvas.clipPath(Path()..addOval(moonBounds));
 
-    // Masque la partie non éclairée de la vraie photographie lunaire.
+    // Géométrie de phase : le terminateur est l'intersection de deux disques.
+    // On assombrit la photo, on ne dessine jamais un disque noir opaque.
     final angle = 2 * math.pi * phase;
-    final shadowDirection = phase < .5 ? -1.0 : 1.0;
-    final shadowOffset = shadowDirection * (1 - math.cos(angle)) * radius;
-    final shadowCenter = center + Offset(shadowOffset, 0);
+    final direction = phase < .5 ? -1.0 : 1.0;
+    final offset = direction * (1 - math.cos(angle)) * radius;
+    final shadowCenter = center + Offset(offset, 0);
 
+    // Légère pénombre autour du terminateur pour éviter une coupure artificielle.
+    canvas.drawCircle(
+      shadowCenter,
+      radius,
+      Paint()
+        ..color = const Color(0x26000000)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.2),
+    );
+
+    // Ombre translucide et modelée : le relief photographique reste visible.
     canvas.drawCircle(
       shadowCenter,
       radius,
       Paint()
         ..shader = RadialGradient(
-          center: const Alignment(-.12, -.08),
-          radius: 1.08,
+          center: const Alignment(-.18, -.12),
+          radius: 1.12,
           colors: const [
-            Color(0xFF080B13),
-            Color(0xFF111722),
+            Color(0xD9000000),
+            Color(0xB8000000),
+            Color(0x8C000000),
           ],
+          stops: const [0, .68, 1],
         ).createShader(
           Rect.fromCircle(center: shadowCenter, radius: radius),
         ),
     );
 
+    // Très légère lumière rasante au bord du terminateur.
+    final terminatorPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..color = const Color(0x22E5E9F2)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.0);
+    canvas.drawCircle(shadowCenter, radius, terminatorPaint);
+
     canvas.restore();
 
-    // Fin liseré pour détacher le disque du ciel nocturne.
+    // Contour discret du vrai disque, centré sur l'image.
     canvas.drawCircle(
       center,
-      radius - .5,
+      radius - .7,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1
-        ..color = const Color(0x55FFFFFF),
+        ..strokeWidth = 1.2
+        ..color = const Color(0x44FFFFFF),
     );
   }
 
